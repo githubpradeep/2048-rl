@@ -4,8 +4,6 @@ import argparse
 import time
 from dataclasses import dataclass
 
-import numpy as np
-
 from .env import Game2048Env
 from .network import MLPQNetwork
 
@@ -33,9 +31,11 @@ class PlayResult:
     steps: int
 
 
-def pick_action(network: MLPQNetwork, state: np.ndarray) -> int:
-    q_values = network.predict(state[None, :])[0]
-    return int(np.argmax(q_values))
+def pick_action(network: MLPQNetwork, state: object, legal_actions: list[int]) -> int:
+    q_values = network.predict_one(state)
+    if not legal_actions:
+        return max(range(len(q_values)), key=q_values.__getitem__)
+    return max(legal_actions, key=lambda action: q_values[action])
 
 
 def run_terminal(
@@ -54,7 +54,7 @@ def run_terminal(
     print("Starting autoplay in terminal mode...\n")
     while not done and steps < max_steps:
         before_board = env.game.board.copy()
-        action = pick_action(network, state)
+        action = pick_action(network, state, env.game.legal_actions())
         state, reward, done, info = env.step(action)
 
         print(f"Step {steps + 1} | Action {action} | Reward {reward:.1f}")
@@ -106,7 +106,7 @@ class PygameRenderer:
     def _tile_text_color(self, value: int) -> tuple[int, int, int]:
         return self.text_dark if value in (0, 2, 4) else self.text_light
 
-    def draw(self, board: np.ndarray, score: int, max_tile: int, steps: int, done: bool) -> None:
+    def draw(self, board: object, score: int, max_tile: int, steps: int, done: bool) -> None:
         pygame = self.pygame
         self.screen.fill(self.bg_color)
 
@@ -182,7 +182,7 @@ def run_pygame(
 
             now = time.monotonic()
             if not done and steps < max_steps and now >= next_step_ts:
-                action = pick_action(network, state)
+                action = pick_action(network, state, env.game.legal_actions())
                 state, _, done, info = env.step(action)
                 steps += 1
                 next_step_ts = now + max(0.0, delay)

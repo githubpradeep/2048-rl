@@ -14,7 +14,7 @@ class EnvConfig:
     lose_penalty: float = -5.0
     win_bonus: float = 50.0
     target_tile: int = 2048
-    max_invalid_streak: int = 20
+    max_invalid_streak: int | None = None
 
 
 class Game2048Env:
@@ -50,7 +50,7 @@ class Game2048Env:
         if not result.moved:
             self.invalid_streak += 1
             reward += self.config.invalid_move_penalty
-            if self.invalid_streak >= self.config.max_invalid_streak:
+            if self.config.max_invalid_streak is not None and self.invalid_streak >= self.config.max_invalid_streak:
                 done = True
         else:
             self.invalid_streak = 0

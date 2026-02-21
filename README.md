@@ -3,11 +3,15 @@
 This project implements everything from scratch in Python for training an RL agent on 2048:
 - 2048 game engine
 - custom RL environment API (`reset/step/get_state`)
-- from-scratch DQN (MLP + backprop + Adam + replay buffer + target network)
+- from-scratch DQN (NumPy-backed MLP + manual backprop + Adam + replay buffer + target network)
 - evaluation script
 - autoplay demo script (terminal + pygame visualization)
 
 No `gymnasium` and no `stable-baselines3` are used.
+
+## Full Tutorial
+
+- Detailed walkthrough: `docs/2048_rl_tutorial.md`
 
 ## Install
 
@@ -54,13 +58,13 @@ python -m src.train_dqn \
 ```
 
 Models are saved in `models/` as:
-- `dqn_2048_best.npz`
-- `dqn_2048_final.npz`
+- `dqn_2048_best.json`
+- `dqn_2048_final.json`
 
 ## Evaluate
 
 ```bash
-python -m src.evaluate --model models/dqn_2048_best.npz --episodes 100
+python -m src.evaluate --model models/dqn_2048_best.json --episodes 100
 ```
 
 ## Autoplay demo
@@ -68,19 +72,19 @@ python -m src.evaluate --model models/dqn_2048_best.npz --episodes 100
 Terminal mode:
 
 ```bash
-python -m src.play_agent --model models/dqn_2048_best.npz --mode terminal --delay 0.1
+python -m src.play_agent --model models/dqn_2048_best.json --mode terminal --delay 0.1
 ```
 
 Debug each transition (before/after board):
 
 ```bash
-python -m src.play_agent --model models/dqn_2048_best.npz --mode terminal --delay 0.3 --debug
+python -m src.play_agent --model models/dqn_2048_best.json --mode terminal --delay 0.3 --debug
 ```
 
 Pygame visualization mode:
 
 ```bash
-python -m src.play_agent --model models/dqn_2048_best.npz --mode pygame --delay 0.08
+python -m src.play_agent --model models/dqn_2048_best.json --mode pygame --delay 0.08
 ```
 
 Controls in pygame mode:
@@ -89,5 +93,5 @@ Controls in pygame mode:
 Optional pygame flag:
 
 ```bash
-python -m src.play_agent --model models/dqn_2048_best.npz --mode pygame --close-on-end
+python -m src.play_agent --model models/dqn_2048_best.json --mode pygame --close-on-end
 ```

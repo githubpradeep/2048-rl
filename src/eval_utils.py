@@ -1,9 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from statistics import median
 from typing import Dict
-
-import numpy as np
 
 from .env import Game2048Env
 from .network import MLPQNetwork
@@ -18,6 +17,16 @@ class EvalStats:
     reach_512: float
     reach_1024: float
     reach_2048: float
+
+
+def argmax(values: list[float]) -> int:
+    return max(range(len(values)), key=values.__getitem__)
+
+
+def masked_argmax(values: list[float], legal_actions: list[int]) -> int:
+    if not legal_actions:
+        return argmax(values)
+    return max(legal_actions, key=lambda action: values[action])
 
 
 def evaluate_policy(
@@ -35,9 +44,11 @@ def evaluate_policy(
         state = env.reset(seed=seed_start + ep)
         done = False
         steps = 0
+        info = {"score": 0, "max_tile": 0}
+
         while not done and steps < max_steps:
-            q_values = network.predict(state[None, :])[0]
-            action = int(np.argmax(q_values))
+            q_values = network.predict_one(state)
+            action = masked_argmax(q_values, env.game.legal_actions())
             state, _, done, info = env.step(action)
             steps += 1
 
@@ -49,17 +60,18 @@ def evaluate_policy(
     for tile in max_tiles:
         tile_distribution[tile] = tile_distribution.get(tile, 0) + 1
 
-    max_tiles_arr = np.array(max_tiles, dtype=np.int32)
-    reach_512 = float(np.mean(max_tiles_arr >= 512))
-    reach_1024 = float(np.mean(max_tiles_arr >= 1024))
-    reach_2048 = float(np.mean(max_tiles_arr >= 2048))
+    reach_512_count = sum(1 for tile in max_tiles if tile >= 512)
+    reach_1024_count = sum(1 for tile in max_tiles if tile >= 1024)
+    reach_2048_count = sum(1 for tile in max_tiles if tile >= 2048)
+
+    n = max(len(scores), 1)
 
     return EvalStats(
-        avg_score=float(np.mean(scores)),
-        median_score=float(np.median(scores)),
-        avg_steps=float(np.mean(steps_per_episode)),
+        avg_score=float(sum(scores) / n),
+        median_score=float(median(scores) if scores else 0.0),
+        avg_steps=float(sum(steps_per_episode) / n),
         tile_distribution=tile_distribution,
-        reach_512=reach_512,
-        reach_1024=reach_1024,
-        reach_2048=reach_2048,
+        reach_512=float(reach_512_count / n),
+        reach_1024=float(reach_1024_count / n),
+        reach_2048=float(reach_2048_count / n),
     )

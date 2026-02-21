@@ -26,6 +26,16 @@ def epsilon_by_step(step: int, start: float, end: float, decay_steps: int) -> fl
     return start + frac * (end - start)
 
 
+def argmax(values: list[float]) -> int:
+    return max(range(len(values)), key=values.__getitem__)
+
+
+def masked_argmax(values: list[float], legal_actions: list[int]) -> int:
+    if not legal_actions:
+        return argmax(values)
+    return max(legal_actions, key=lambda action: values[action])
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Train a from-scratch DQN agent for 2048")
     parser.add_argument("--episodes", type=int, default=2000)
@@ -87,12 +97,16 @@ def main() -> None:
         info = {"score": 0, "max_tile": 0, "moved": True}
 
         while not done and steps < args.max_steps:
+            legal_actions = env.game.legal_actions()
             epsilon = epsilon_by_step(global_step, args.eps_start, args.eps_end, args.eps_decay_steps)
             if rng.random() < epsilon:
-                action = int(rng.integers(0, env.action_size))
+                if legal_actions:
+                    action = int(rng.choice(legal_actions))
+                else:
+                    action = int(rng.integers(0, env.action_size))
             else:
-                q_values = online.predict(state[None, :])[0]
-                action = int(np.argmax(q_values))
+                q_values = online.predict_one(state)
+                action = masked_argmax(q_values, legal_actions)
 
             next_state, reward, done, info = env.step(action)
             if not bool(info["moved"]):
@@ -108,9 +122,12 @@ def main() -> None:
             can_train = len(buffer) >= args.batch_size and global_step >= args.warmup_steps
             if can_train and global_step % args.train_every == 0:
                 batch = buffer.sample(args.batch_size, rng)
-                target_q = target.predict(batch.next_states)
-                max_next_q = np.max(target_q, axis=1)
-                td_target = batch.rewards + args.gamma * (1.0 - batch.dones) * max_next_q
+                target_q = target.predict_batch(batch.next_states)
+                max_next_q = [max(q_values) for q_values in target_q]
+                td_target = [
+                    float(reward) + args.gamma * (1.0 - float(done)) * float(max_q)
+                    for reward, done, max_q in zip(batch.rewards, batch.dones, max_next_q)
+                ]
                 loss, td_abs = online.train_batch(batch.states, batch.actions, td_target, optimizer)
                 losses.append(loss)
                 td_abs_vals.append(td_abs)
@@ -138,11 +155,11 @@ def main() -> None:
             )
             if stats.avg_score > best_eval:
                 best_eval = stats.avg_score
-                best_path = save_dir / "dqn_2048_best.npz"
+                best_path = save_dir / "dqn_2048_best.json"
                 online.save(best_path)
                 print(f"  saved new best checkpoint: {best_path}")
 
-    final_path = save_dir / "dqn_2048_final.npz"
+    final_path = save_dir / "dqn_2048_final.json"
     online.save(final_path)
     print(f"Training complete. Final model saved to: {final_path}")
 
