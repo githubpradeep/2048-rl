@@ -6,7 +6,7 @@ This project implements everything from scratch in Python for training an RL age
 - from-scratch DQN (NumPy-backed MLP + manual backprop + Adam + replay buffer + target network)
 - evaluation script
 - autoplay demo script (terminal + pygame visualization)
-- multi-game scaffold with Snake added as game #2
+- multi-game scaffold with Snake + Fruit Cutter
 
 No `gymnasium` and no `stable-baselines3` are used.
 
@@ -37,6 +37,14 @@ pip install -r requirements.txt
 - `src/evaluate_snake.py`: Snake policy evaluation
 - `src/play_snake_agent.py`: Snake autoplay demo
 - `src/snake_eval_utils.py`: Snake eval helpers
+- `src/games/fruit_cutter.py`: Fruit Cutter engine + env
+- `src/train_fruit_dqn.py`: Fruit Cutter DQN training loop
+- `src/evaluate_fruit.py`: Fruit Cutter policy evaluation
+- `src/play_fruit_agent.py`: Fruit Cutter autoplay demo
+- `src/fruit_eval_utils.py`: Fruit eval helpers
+- `src/train_game.py`: generic train dispatcher (`2048|snake|fruit`)
+- `src/evaluate_game.py`: generic evaluate dispatcher
+- `src/play_game.py`: generic play dispatcher
 - `tests/`: unit tests
 
 ## Run tests
@@ -168,4 +176,60 @@ Benchmark baseline vs Double+Dueling (same seeds/settings):
 
 ```bash
 python -m src.benchmark_snake_dqn --episodes 2000 --eval-episodes 100 --save-root models/snake_benchmark
+```
+
+## Fruit Cutter (Game #3)
+
+Train:
+
+```bash
+python -m src.train_fruit_dqn --episodes 2000 --eval-every 50 --eval-episodes 30 --save-dir models/fruit
+```
+
+Double DQN + dueling:
+
+```bash
+python -m src.train_fruit_dqn \
+  --episodes 3000 \
+  --double-dqn \
+  --dueling \
+  --save-dir models/fruit_ddqn_dueling
+```
+
+Evaluate:
+
+```bash
+python -m src.evaluate_fruit --model models/fruit/fruit_dqn_best.json --episodes 200
+```
+
+Autoplay:
+
+```bash
+python -m src.play_fruit_agent --model models/fruit/fruit_dqn_best.json --mode pygame --delay 0.08
+```
+
+## Generic Runner
+
+Train any game:
+
+```bash
+python -m src.train_game snake --episodes 3000 --save-dir models/snake_generic
+python -m src.train_game fruit --episodes 2000 --save-dir models/fruit_generic
+python -m src.train_game 2048 --episodes 2000 --save-dir models/2048_generic
+```
+
+Evaluate:
+
+```bash
+python -m src.evaluate_game snake --model models/snake_generic/snake_dqn_best.json --episodes 100
+python -m src.evaluate_game fruit --model models/fruit_generic/fruit_dqn_best.json --episodes 100
+python -m src.evaluate_game 2048 --model models/2048_generic/dqn_2048_best.json --episodes 100
+```
+
+Play:
+
+```bash
+python -m src.play_game snake --model models/snake_generic/snake_dqn_best.json --mode pygame
+python -m src.play_game fruit --model models/fruit_generic/fruit_dqn_best.json --mode pygame
+python -m src.play_game 2048 --model models/2048_generic/dqn_2048_best.json --mode pygame
 ```
