@@ -9,6 +9,7 @@ PLAY_MODULES = {
     "2048": "src.play_agent",
     "snake": "src.play_snake_agent",
     "fruit": "src.play_fruit_agent",
+    "shooter": "src.play_shooter_agent",
 }
 
 
