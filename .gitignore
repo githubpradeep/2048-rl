@@ -3,4 +3,6 @@ __pycache__/
 .venv/
 models/*.npz
 models/*.json
+models/**/*.npz
+models/**/*.json
 logs/

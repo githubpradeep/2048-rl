@@ -6,6 +6,7 @@ This project implements everything from scratch in Python for training an RL age
 - from-scratch DQN (NumPy-backed MLP + manual backprop + Adam + replay buffer + target network)
 - evaluation script
 - autoplay demo script (terminal + pygame visualization)
+- multi-game scaffold with Snake added as game #2
 
 No `gymnasium` and no `stable-baselines3` are used.
 
@@ -30,6 +31,12 @@ pip install -r requirements.txt
 - `src/train_dqn.py`: DQN training loop
 - `src/evaluate.py`: policy evaluation
 - `src/play_agent.py`: automatic gameplay demo
+- `src/games/base.py`: shared game interface
+- `src/games/snake.py`: Snake engine + Snake env
+- `src/train_snake_dqn.py`: Snake DQN training loop
+- `src/evaluate_snake.py`: Snake policy evaluation
+- `src/play_snake_agent.py`: Snake autoplay demo
+- `src/snake_eval_utils.py`: Snake eval helpers
 - `tests/`: unit tests
 
 ## Run tests
@@ -94,4 +101,30 @@ Optional pygame flag:
 
 ```bash
 python -m src.play_agent --model models/dqn_2048_best.json --mode pygame --close-on-end
+```
+
+## Snake (Game #2)
+
+Train:
+
+```bash
+python -m src.train_snake_dqn --episodes 1500 --eval-every 50 --eval-episodes 25 --save-dir models/snake
+```
+
+Evaluate:
+
+```bash
+python -m src.evaluate_snake --model models/snake/snake_dqn_best.json --episodes 100
+```
+
+Autoplay (terminal):
+
+```bash
+python -m src.play_snake_agent --model models/snake/snake_dqn_best.json --mode terminal --delay 0.1
+```
+
+Autoplay (pygame):
+
+```bash
+python -m src.play_snake_agent --model models/snake/snake_dqn_best.json --mode pygame --delay 0.08
 ```

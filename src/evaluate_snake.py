@@ -1,0 +1,33 @@
+from __future__ import annotations
+
+import argparse
+
+from .games.snake import SnakeConfig, SnakeEnv
+from .network import MLPQNetwork
+from .snake_eval_utils import evaluate_snake_policy
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Evaluate trained DQN for Snake")
+    parser.add_argument("--model", type=str, required=True)
+    parser.add_argument("--episodes", type=int, default=100)
+    parser.add_argument("--seed", type=int, default=123)
+    parser.add_argument("--grid-size", type=int, default=10)
+    args = parser.parse_args()
+
+    env = SnakeEnv(config=SnakeConfig(grid_size=args.grid_size), seed=args.seed)
+    network = MLPQNetwork.load(args.model)
+    stats = evaluate_snake_policy(env, network, episodes=args.episodes, seed_start=args.seed)
+
+    print("Snake Evaluation Results")
+    print("------------------------")
+    print(f"Episodes: {args.episodes}")
+    print(f"Average score: {stats.avg_score:.3f}")
+    print(f"Median score: {stats.median_score:.3f}")
+    print(f"Average steps: {stats.avg_steps:.2f}")
+    print(f"Average length: {stats.avg_length:.2f}")
+    print(f"Food rate (foods/step): {stats.food_rate:.5f}")
+
+
+if __name__ == "__main__":
+    main()
