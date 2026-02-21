@@ -169,13 +169,15 @@ def main() -> None:
     parser.add_argument("--model", type=str, required=True)
     parser.add_argument("--seed", type=int, default=2026)
     parser.add_argument("--grid-size", type=int, default=10)
+    parser.add_argument("--state-grid-size", type=int, default=0)
     parser.add_argument("--delay", type=float, default=0.08)
     parser.add_argument("--max-steps", type=int, default=2000)
     parser.add_argument("--mode", choices=["terminal", "pygame"], default="terminal")
     parser.add_argument("--close-on-end", action="store_true")
     args = parser.parse_args()
 
-    env = SnakeEnv(config=SnakeConfig(grid_size=args.grid_size), seed=args.seed)
+    state_grid_size = args.state_grid_size if args.state_grid_size > 0 else args.grid_size
+    env = SnakeEnv(config=SnakeConfig(grid_size=args.grid_size), seed=args.seed, state_grid_size=state_grid_size)
     network = MLPQNetwork.load(args.model)
 
     if args.mode == "pygame":

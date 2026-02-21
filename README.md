@@ -111,6 +111,34 @@ Train:
 python -m src.train_snake_dqn --episodes 1500 --eval-every 50 --eval-episodes 25 --save-dir models/snake
 ```
 
+Double DQN + dueling architecture:
+
+```bash
+python -m src.train_snake_dqn \
+  --episodes 5000 \
+  --curriculum-grid-sizes 8,10 \
+  --state-grid-size 10 \
+  --distance-reward-scale 0.2 \
+  --double-dqn \
+  --dueling \
+  --eval-every 50 \
+  --eval-episodes 50 \
+  --save-dir models/snake_ddqn_dueling
+```
+
+Curriculum train (8x8 -> 10x10 in one run):
+
+```bash
+python -m src.train_snake_dqn \
+  --episodes 5000 \
+  --curriculum-grid-sizes 8,10 \
+  --state-grid-size 10 \
+  --distance-reward-scale 0.2 \
+  --eval-every 50 \
+  --eval-episodes 50 \
+  --save-dir models/snake_v2
+```
+
 Evaluate:
 
 ```bash
@@ -127,4 +155,17 @@ Autoplay (pygame):
 
 ```bash
 python -m src.play_snake_agent --model models/snake/snake_dqn_best.json --mode pygame --delay 0.08
+```
+
+If the model was trained with padded state grid, pass `--state-grid-size` consistently:
+
+```bash
+python -m src.evaluate_snake --model models/snake_v2/snake_dqn_best.json --episodes 200 --grid-size 10 --state-grid-size 10
+python -m src.play_snake_agent --model models/snake_v2/snake_dqn_best.json --mode pygame --grid-size 10 --state-grid-size 10 --delay 0.06
+```
+
+Benchmark baseline vs Double+Dueling (same seeds/settings):
+
+```bash
+python -m src.benchmark_snake_dqn --episodes 2000 --eval-episodes 100 --save-root models/snake_benchmark
 ```

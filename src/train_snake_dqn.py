@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
-from typing import Tuple
+from typing import List, Tuple
 
 import numpy as np
 
@@ -19,6 +19,13 @@ def parse_hidden_sizes(raw: str) -> Tuple[int, ...]:
     return tuple(int(v) for v in values)
 
 
+def parse_int_list(raw: str) -> List[int]:
+    values = [v.strip() for v in raw.split(",") if v.strip()]
+    if not values:
+        return []
+    return [int(v) for v in values]
+
+
 def epsilon_by_step(step: int, start: float, end: float, decay_steps: int) -> float:
     if step >= decay_steps:
         return end
@@ -32,16 +39,42 @@ def masked_argmax(values: list[float], legal_actions: list[int]) -> int:
     return max(legal_actions, key=lambda action: values[action])
 
 
+def argmax(values: list[float]) -> int:
+    return max(range(len(values)), key=values.__getitem__)
+
+
+def curriculum_grid_size(episode: int, total_episodes: int, stages: List[int]) -> int:
+    if len(stages) == 1:
+        return stages[0]
+    idx = min(len(stages) - 1, ((episode - 1) * len(stages)) // max(total_episodes, 1))
+    return stages[idx]
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Train from-scratch DQN agent for Snake")
     parser.add_argument("--episodes", type=int, default=1500)
     parser.add_argument("--max-steps", type=int, default=1200)
     parser.add_argument("--grid-size", type=int, default=10)
+    parser.add_argument(
+        "--curriculum-grid-sizes",
+        type=str,
+        default="",
+        help="Comma-separated grid sizes by curriculum stage, e.g. '8,10'. Empty disables curriculum.",
+    )
+    parser.add_argument(
+        "--state-grid-size",
+        type=int,
+        default=0,
+        help="Encoded state grid size. 0 means auto (max of curriculum/grid size).",
+    )
     parser.add_argument("--buffer-size", type=int, default=80_000)
     parser.add_argument("--batch-size", type=int, default=128)
     parser.add_argument("--gamma", type=float, default=0.99)
     parser.add_argument("--lr", type=float, default=1e-3)
+    parser.add_argument("--distance-reward-scale", type=float, default=0.2)
     parser.add_argument("--target-update", type=int, default=1000)
+    parser.add_argument("--double-dqn", action="store_true", help="Use Double DQN target action selection.")
+    parser.add_argument("--dueling", action="store_true", help="Use dueling architecture for Q-network.")
     parser.add_argument("--train-every", type=int, default=4)
     parser.add_argument("--warmup-steps", type=int, default=4000)
     parser.add_argument("--eps-start", type=float, default=1.0)
@@ -56,8 +89,25 @@ def main() -> None:
 
     rng = np.random.default_rng(args.seed)
     hidden_sizes = parse_hidden_sizes(args.hidden_sizes)
+    curriculum_stages = parse_int_list(args.curriculum_grid_sizes)
+    if curriculum_stages:
+        if any(size < 4 for size in curriculum_stages):
+            raise ValueError("All curriculum grid sizes must be >= 4")
+        grid_stages = curriculum_stages
+    else:
+        grid_stages = [args.grid_size]
 
-    env = SnakeEnv(config=SnakeConfig(grid_size=args.grid_size), seed=args.seed)
+    max_grid_size = max(grid_stages)
+    state_grid_size = args.state_grid_size if args.state_grid_size > 0 else max_grid_size
+    if state_grid_size < max_grid_size:
+        raise ValueError("state-grid-size must be >= max curriculum grid size")
+
+    first_grid = grid_stages[0]
+    env = SnakeEnv(
+        config=SnakeConfig(grid_size=first_grid, distance_reward_scale=args.distance_reward_scale),
+        seed=args.seed,
+        state_grid_size=state_grid_size,
+    )
     state_dim = env.reset(seed=args.seed).shape[0]
 
     online = MLPQNetwork(
@@ -65,12 +115,14 @@ def main() -> None:
         output_dim=env.action_size,
         hidden_sizes=hidden_sizes,
         seed=args.seed,
+        dueling=args.dueling,
     )
     target = MLPQNetwork(
         input_dim=state_dim,
         output_dim=env.action_size,
         hidden_sizes=hidden_sizes,
         seed=args.seed + 1,
+        dueling=args.dueling,
     )
     target.copy_from(online)
 
@@ -82,8 +134,19 @@ def main() -> None:
 
     global_step = 0
     best_eval = -float("inf")
+    print(
+        f"Snake training config | curriculum={grid_stages} state_grid={state_grid_size} "
+        f"distance_reward_scale={args.distance_reward_scale} "
+        f"double_dqn={args.double_dqn} dueling={args.dueling}"
+    )
 
     for episode in range(1, args.episodes + 1):
+        episode_grid = curriculum_grid_size(episode, args.episodes, grid_stages)
+        env = SnakeEnv(
+            config=SnakeConfig(grid_size=episode_grid, distance_reward_scale=args.distance_reward_scale),
+            seed=args.seed + episode,
+            state_grid_size=state_grid_size,
+        )
         state = env.reset(seed=args.seed + episode)
         done = False
         episode_reward = 0.0
@@ -117,7 +180,12 @@ def main() -> None:
             if can_train and global_step % args.train_every == 0:
                 batch = buffer.sample(args.batch_size, rng)
                 target_q = target.predict_batch(batch.next_states)
-                max_next_q = [max(values) for values in target_q]
+                if args.double_dqn:
+                    online_q = online.predict_batch(batch.next_states)
+                    next_actions = [argmax(values) for values in online_q]
+                    max_next_q = [float(target_q[i][next_actions[i]]) for i in range(len(next_actions))]
+                else:
+                    max_next_q = [max(values) for values in target_q]
                 td_target = [
                     float(reward_i) + args.gamma * (1.0 - float(done_i)) * float(max_q)
                     for reward_i, done_i, max_q in zip(batch.rewards, batch.dones, max_next_q)
@@ -133,17 +201,22 @@ def main() -> None:
         mean_td_abs = float(np.mean(td_abs_vals)) if td_abs_vals else 0.0
 
         print(
-            f"ep={episode:4d} steps={steps:4d} score={int(info['score']):4d} len={int(info['length']):3d} "
+            f"ep={episode:4d} grid={episode_grid:2d} steps={steps:4d} score={int(info['score']):4d} len={int(info['length']):3d} "
             f"foods={foods:3d} reward={episode_reward:8.2f} "
             f"eps={epsilon_by_step(global_step, args.eps_start, args.eps_end, args.eps_decay_steps):.3f} "
             f"loss={mean_loss:.5f} td_abs={mean_td_abs:.5f}"
         )
 
         if episode % args.eval_every == 0:
-            eval_env = SnakeEnv(config=SnakeConfig(grid_size=args.grid_size), seed=args.seed + 999)
+            eval_grid = grid_stages[-1]
+            eval_env = SnakeEnv(
+                config=SnakeConfig(grid_size=eval_grid, distance_reward_scale=args.distance_reward_scale),
+                seed=args.seed + 999,
+                state_grid_size=state_grid_size,
+            )
             stats = evaluate_snake_policy(eval_env, online, episodes=args.eval_episodes, seed_start=args.seed + 7000)
             print(
-                f"  eval: avg_score={stats.avg_score:.2f} median={stats.median_score:.2f} "
+                f"  eval(grid={eval_grid}): avg_score={stats.avg_score:.2f} median={stats.median_score:.2f} "
                 f"avg_len={stats.avg_length:.2f} avg_steps={stats.avg_steps:.2f} food_rate={stats.food_rate:.4f}"
             )
             if stats.avg_score > best_eval:

@@ -51,7 +51,13 @@ class TestSnakeGame(unittest.TestCase):
         self.assertTrue(result.collision)
 
     def test_starvation_ends_game(self) -> None:
-        cfg = SnakeConfig(grid_size=7, step_reward=0.0, death_penalty=-5.0, max_steps_without_food=2)
+        cfg = SnakeConfig(
+            grid_size=7,
+            step_reward=0.0,
+            death_penalty=-5.0,
+            distance_reward_scale=0.0,
+            max_steps_without_food=2,
+        )
         game = SnakeGame(config=cfg, seed=4)
         game.reset(seed=4)
 
@@ -64,12 +70,43 @@ class TestSnakeGame(unittest.TestCase):
         self.assertTrue(second.done)
         self.assertEqual(second.reward, -5.0)
 
+    def test_distance_reward_shaping(self) -> None:
+        cfg = SnakeConfig(
+            grid_size=8,
+            step_reward=0.0,
+            food_reward=0.0,
+            death_penalty=-10.0,
+            reverse_penalty=0.0,
+            distance_reward_scale=1.0,
+            max_steps_without_food=100,
+        )
+        game = SnakeGame(config=cfg, seed=7)
+        game.reset(seed=7)
+
+        game.snake = [(3, 1), (3, 2), (3, 3)]
+        game.direction = 0  # UP
+        game.food = (0, 3)
+        closer = game.step(0)  # move up, closer by 1
+        self.assertAlmostEqual(closer.reward, 1.0, places=6)
+
+        game.snake = [(3, 1), (3, 2), (3, 3)]
+        game.direction = 0  # UP
+        game.food = (0, 3)
+        farther = game.step(RIGHT)  # move right, farther by 1
+        self.assertAlmostEqual(farther.reward, -1.0, places=6)
+
 
 class TestSnakeEnv(unittest.TestCase):
     def test_state_shape(self) -> None:
         env = SnakeEnv(config=SnakeConfig(grid_size=8), seed=5)
         state = env.reset(seed=5)
         self.assertEqual(state.shape, (3 * 8 * 8,))
+        self.assertEqual(state.dtype, np.float32)
+
+    def test_state_shape_with_padding_grid(self) -> None:
+        env = SnakeEnv(config=SnakeConfig(grid_size=8), seed=5, state_grid_size=10)
+        state = env.reset(seed=5)
+        self.assertEqual(state.shape, (3 * 10 * 10,))
         self.assertEqual(state.dtype, np.float32)
 
     def test_legal_actions_exclude_reverse(self) -> None:

@@ -42,6 +42,7 @@ class SnakeConfig:
     step_reward: float = 0.1
     death_penalty: float = -10.0
     reverse_penalty: float = -0.2
+    distance_reward_scale: float = 0.2
     max_steps_without_food: int = 150
 
 
@@ -102,6 +103,10 @@ class SnakeGame:
     def legal_actions(self) -> list[int]:
         return [action for action in range(4) if action != OPPOSITE_DIRECTION[self.direction]]
 
+    @staticmethod
+    def _manhattan(a: Tuple[int, int], b: Tuple[int, int]) -> int:
+        return abs(a[0] - b[0]) + abs(a[1] - b[1])
+
     def step(self, action: int) -> SnakeStepResult:
         if action not in DIRECTION_VECTORS:
             raise ValueError(f"Invalid action {action}")
@@ -118,6 +123,7 @@ class SnakeGame:
 
         dr, dc = DIRECTION_VECTORS[self.direction]
         head_r, head_c = self.snake[-1]
+        old_distance = self._manhattan((head_r, head_c), self.food)
         next_head = (head_r + dr, head_c + dc)
 
         out_of_bounds = not (0 <= next_head[0] < self.grid_size and 0 <= next_head[1] < self.grid_size)
@@ -141,6 +147,8 @@ class SnakeGame:
         else:
             self.snake.pop(0)
             reward = self.config.step_reward
+            new_distance = self._manhattan(next_head, self.food)
+            reward += self.config.distance_reward_scale * float(old_distance - new_distance)
 
         done = False
         if self.steps_since_food >= self.config.max_steps_without_food:
@@ -190,24 +198,42 @@ class SnakeEnv:
 
     action_size = 4
 
-    def __init__(self, config: SnakeConfig | None = None, seed: int | None = None) -> None:
+    def __init__(
+        self,
+        config: SnakeConfig | None = None,
+        seed: int | None = None,
+        state_grid_size: int | None = None,
+    ) -> None:
         self.game = SnakeGame(config=config, seed=seed)
+        self.state_grid_size = int(state_grid_size) if state_grid_size is not None else self.game.grid_size
+        if self.state_grid_size < self.game.grid_size:
+            raise ValueError("state_grid_size must be >= game grid_size")
 
     def reset(self, seed: int | None = None) -> np.ndarray:
         self.game.reset(seed=seed)
         return self.get_state()
 
     def get_state(self) -> np.ndarray:
-        return self.encode_board(self.game.board())
+        return self.encode_board(self.game.board(), state_grid_size=self.state_grid_size)
 
     @staticmethod
-    def encode_board(board: np.ndarray) -> np.ndarray:
+    def encode_board(board: np.ndarray, state_grid_size: int | None = None) -> np.ndarray:
         # Channels: snake body(1), head(1), food(1)
-        size = board.shape[0]
+        board_size = board.shape[0]
+        size = int(state_grid_size) if state_grid_size is not None else board_size
+        if size < board_size:
+            raise ValueError("state_grid_size must be >= board size")
+
         state = np.zeros((3, size, size), dtype=np.float32)
-        state[0][board == 1] = 1.0
-        state[1][board == 2] = 1.0
-        state[2][board == 3] = 1.0
+        offset = (size - board_size) // 2
+
+        body_rows, body_cols = np.where(board == 1)
+        head_rows, head_cols = np.where(board == 2)
+        food_rows, food_cols = np.where(board == 3)
+
+        state[0, body_rows + offset, body_cols + offset] = 1.0
+        state[1, head_rows + offset, head_cols + offset] = 1.0
+        state[2, food_rows + offset, food_cols + offset] = 1.0
         return state.reshape(-1)
 
     def legal_actions(self) -> list[int]:
