@@ -6,7 +6,7 @@ This project implements everything from scratch in Python for training an RL age
 - from-scratch DQN (NumPy-backed MLP + manual backprop + Adam + replay buffer + target network)
 - evaluation script
 - autoplay demo script (terminal + pygame visualization)
-- multi-game scaffold with Snake + Fruit Cutter + Shooter
+- multi-game scaffold with Snake + Fruit Cutter + Shooter + Tetris
 
 No `gymnasium` and no `stable-baselines3` are used.
 
@@ -39,6 +39,7 @@ pip install -r requirements.txt
 - `src/snake_eval_utils.py`: Snake eval helpers
 - `src/games/fruit_cutter.py`: Fruit Cutter engine + env
 - `src/games/shooter.py`: Shooter engine + env
+- `src/games/tetris.py`: Tetris engine + env
 - `src/train_fruit_dqn.py`: Fruit Cutter DQN training loop
 - `src/evaluate_fruit.py`: Fruit Cutter policy evaluation
 - `src/play_fruit_agent.py`: Fruit Cutter autoplay demo
@@ -47,7 +48,15 @@ pip install -r requirements.txt
 - `src/evaluate_shooter.py`: Shooter policy evaluation
 - `src/play_shooter_agent.py`: Shooter autoplay demo
 - `src/shooter_eval_utils.py`: Shooter eval helpers
-- `src/train_game.py`: generic train dispatcher (`2048|snake|fruit|shooter`)
+- `src/train_tetris_dqn.py`: Tetris DQN training loop
+- `src/evaluate_tetris.py`: Tetris policy evaluation
+- `src/play_tetris_agent.py`: Tetris autoplay demo
+- `src/tetris_eval_utils.py`: Tetris eval helpers
+- `src/train_tetris_afterstate.py`: Tetris afterstate-value training loop
+- `src/evaluate_tetris_afterstate.py`: Tetris afterstate evaluation
+- `src/play_tetris_afterstate_agent.py`: Tetris afterstate autoplay demo
+- `src/tetris_afterstate_utils.py`: Tetris afterstate helpers
+- `src/train_game.py`: generic train dispatcher (`2048|snake|fruit|shooter|tetris`)
 - `src/evaluate_game.py`: generic evaluate dispatcher
 - `src/play_game.py`: generic play dispatcher
 - `tests/`: unit tests
@@ -221,6 +230,7 @@ Train any game:
 python -m src.train_game snake --episodes 3000 --save-dir models/snake_generic
 python -m src.train_game fruit --episodes 2000 --save-dir models/fruit_generic
 python -m src.train_game shooter --episodes 2500 --save-dir models/shooter_generic
+python -m src.train_game tetris --episodes 3000 --save-dir models/tetris_generic
 python -m src.train_game 2048 --episodes 2000 --save-dir models/2048_generic
 ```
 
@@ -230,6 +240,7 @@ Evaluate:
 python -m src.evaluate_game snake --model models/snake_generic/snake_dqn_best.json --episodes 100
 python -m src.evaluate_game fruit --model models/fruit_generic/fruit_dqn_best.json --episodes 100
 python -m src.evaluate_game shooter --model models/shooter_generic/shooter_dqn_best.json --episodes 100
+python -m src.evaluate_game tetris --model models/tetris_generic/tetris_dqn_best.json --episodes 100
 python -m src.evaluate_game 2048 --model models/2048_generic/dqn_2048_best.json --episodes 100
 ```
 
@@ -239,6 +250,7 @@ Play:
 python -m src.play_game snake --model models/snake_generic/snake_dqn_best.json --mode pygame
 python -m src.play_game fruit --model models/fruit_generic/fruit_dqn_best.json --mode pygame
 python -m src.play_game shooter --model models/shooter_generic/shooter_dqn_best.json --mode pygame
+python -m src.play_game tetris --model models/tetris_generic/tetris_dqn_best.json --mode pygame
 python -m src.play_game 2048 --model models/2048_generic/dqn_2048_best.json --mode pygame
 ```
 
@@ -270,4 +282,77 @@ Autoplay:
 
 ```bash
 python -m src.play_shooter_agent --model models/shooter/shooter_dqn_best.json --mode pygame --delay 0.08
+```
+
+## Tetris (Game #5)
+
+Train (primitive controls):
+
+```bash
+python -m src.train_tetris_dqn --episodes 3000 --eval-every 50 --eval-episodes 30 --save-dir models/tetris
+```
+
+Recommended: placement-action mode (one action = rotation+column), Double DQN + dueling:
+
+```bash
+python -m src.train_tetris_dqn \
+  --episodes 4000 \
+  --height 10 --width 6 --max-steps 500 \
+  --placement-actions \
+  --double-dqn \
+  --dueling \
+  --save-dir models/tetris_placement_ddqn_dueling
+```
+
+Evaluate:
+
+```bash
+python -m src.evaluate_tetris \
+  --model models/tetris_placement_ddqn_dueling/tetris_dqn_best.json \
+  --episodes 200 \
+  --height 10 --width 6 --max-steps 500 \
+  --placement-actions
+```
+
+Autoplay:
+
+```bash
+python -m src.play_tetris_agent \
+  --model models/tetris_placement_ddqn_dueling/tetris_dqn_best.json \
+  --mode pygame --delay 0.08 \
+  --height 10 --width 6 --max-steps 500 \
+  --placement-actions
+```
+
+Recommended for stronger learning: afterstate value mode (score each legal placement's resulting board).
+
+Train:
+
+```bash
+python -m src.train_tetris_afterstate \
+  --episodes 5000 \
+  --height 10 --width 6 --max-steps 500 \
+  --state-features classic4 \
+  --reward-style score_delta \
+  --huber-delta 5.0 \
+  --eval-every 100 --eval-episodes 100 \
+  --save-dir models/tetris_afterstate
+```
+
+Evaluate:
+
+```bash
+python -m src.evaluate_tetris_afterstate \
+  --model models/tetris_afterstate/tetris_afterstate_best.json \
+  --episodes 200 \
+  --height 10 --width 6 --max-steps 500
+```
+
+Autoplay:
+
+```bash
+python -m src.play_tetris_afterstate_agent \
+  --model models/tetris_afterstate/tetris_afterstate_best.json \
+  --mode pygame --delay 0.08 \
+  --height 10 --width 6 --max-steps 500
 ```

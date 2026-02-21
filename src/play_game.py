@@ -10,6 +10,7 @@ PLAY_MODULES = {
     "snake": "src.play_snake_agent",
     "fruit": "src.play_fruit_agent",
     "shooter": "src.play_shooter_agent",
+    "tetris": "src.play_tetris_agent",
 }
 
 

@@ -10,6 +10,7 @@ TRAIN_MODULES = {
     "snake": "src.train_snake_dqn",
     "fruit": "src.train_fruit_dqn",
     "shooter": "src.train_shooter_dqn",
+    "tetris": "src.train_tetris_dqn",
 }
 
 

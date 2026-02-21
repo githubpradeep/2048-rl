@@ -10,6 +10,7 @@ EVAL_MODULES = {
     "snake": "src.evaluate_snake",
     "fruit": "src.evaluate_fruit",
     "shooter": "src.evaluate_shooter",
+    "tetris": "src.evaluate_tetris",
 }
 
 

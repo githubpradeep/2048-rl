@@ -8,11 +8,19 @@ import numpy as np
 
 
 class AdamOptimizer:
-    def __init__(self, lr: float = 1e-3, beta1: float = 0.9, beta2: float = 0.999, eps: float = 1e-8) -> None:
+    def __init__(
+        self,
+        lr: float = 1e-3,
+        beta1: float = 0.9,
+        beta2: float = 0.999,
+        eps: float = 1e-8,
+        max_grad_norm: float | None = None,
+    ) -> None:
         self.lr = float(lr)
         self.beta1 = float(beta1)
         self.beta2 = float(beta2)
         self.eps = float(eps)
+        self.max_grad_norm = None if max_grad_norm is None else float(max_grad_norm)
 
         self.m_w: List[np.ndarray] = []
         self.v_w: List[np.ndarray] = []
@@ -37,6 +45,20 @@ class AdamOptimizer:
     ) -> None:
         self._ensure_state(weights, biases)
         self.t += 1
+
+        if self.max_grad_norm is not None and self.max_grad_norm > 0.0:
+            global_sq = 0.0
+            for g in grad_w:
+                global_sq += float(np.sum(g * g))
+            for g in grad_b:
+                global_sq += float(np.sum(g * g))
+            global_norm = float(np.sqrt(global_sq))
+            if global_norm > self.max_grad_norm:
+                scale = self.max_grad_norm / (global_norm + 1e-12)
+                for i in range(len(grad_w)):
+                    grad_w[i] = grad_w[i] * scale
+                for i in range(len(grad_b)):
+                    grad_b[i] = grad_b[i] * scale
 
         for i in range(len(weights)):
             self.m_w[i] = self.beta1 * self.m_w[i] + (1.0 - self.beta1) * grad_w[i]
@@ -214,6 +236,8 @@ class MLPQNetwork:
         actions_arr: np.ndarray,
         targets_arr: np.ndarray,
         optimizer: AdamOptimizer,
+        loss: str,
+        huber_delta: float,
     ) -> tuple[float, float]:
         activations: List[np.ndarray] = cache["activations"]
         pre_activations: List[np.ndarray] = cache["pre_activations"]
@@ -221,11 +245,24 @@ class MLPQNetwork:
 
         pred = q_values[np.arange(batch_size), actions_arr]
         td_errors = pred - targets_arr
-        loss = float(0.5 * np.mean(td_errors**2))
-        td_abs_mean = float(np.mean(np.abs(td_errors)))
+        td_abs = np.abs(td_errors)
+        td_abs_mean = float(np.mean(td_abs))
+        if loss == "huber":
+            delta = float(huber_delta)
+            quadratic = td_abs <= delta
+            loss_val = np.where(
+                quadratic,
+                0.5 * (td_errors**2),
+                delta * (td_abs - 0.5 * delta),
+            )
+            grad_errors = np.where(quadratic, td_errors, delta * np.sign(td_errors))
+            loss_value = float(np.mean(loss_val))
+        else:
+            grad_errors = td_errors
+            loss_value = float(0.5 * np.mean(td_errors**2))
 
         grad_output = np.zeros_like(q_values, dtype=np.float32)
-        grad_output[np.arange(batch_size), actions_arr] = td_errors / batch_size
+        grad_output[np.arange(batch_size), actions_arr] = grad_errors / batch_size
 
         grad_w = [np.zeros_like(w, dtype=np.float32) for w in self.weights]
         grad_b = [np.zeros_like(b, dtype=np.float32) for b in self.biases]
@@ -241,7 +278,7 @@ class MLPQNetwork:
                 grad *= self._relu_grad(pre_activations[li - 1])
 
         optimizer.step(self.weights, self.biases, grad_w, grad_b)
-        return loss, td_abs_mean
+        return loss_value, td_abs_mean
 
     def _train_batch_dueling(
         self,
@@ -250,16 +287,31 @@ class MLPQNetwork:
         actions_arr: np.ndarray,
         targets_arr: np.ndarray,
         optimizer: AdamOptimizer,
+        loss: str,
+        huber_delta: float,
     ) -> tuple[float, float]:
         batch_size = q_values.shape[0]
 
         pred = q_values[np.arange(batch_size), actions_arr]
         td_errors = pred - targets_arr
-        loss = float(0.5 * np.mean(td_errors**2))
-        td_abs_mean = float(np.mean(np.abs(td_errors)))
+        td_abs = np.abs(td_errors)
+        td_abs_mean = float(np.mean(td_abs))
+        if loss == "huber":
+            delta = float(huber_delta)
+            quadratic = td_abs <= delta
+            loss_val = np.where(
+                quadratic,
+                0.5 * (td_errors**2),
+                delta * (td_abs - 0.5 * delta),
+            )
+            grad_errors = np.where(quadratic, td_errors, delta * np.sign(td_errors))
+            loss_value = float(np.mean(loss_val))
+        else:
+            grad_errors = td_errors
+            loss_value = float(0.5 * np.mean(td_errors**2))
 
         grad_q = np.zeros_like(q_values, dtype=np.float32)
-        grad_q[np.arange(batch_size), actions_arr] = td_errors / batch_size
+        grad_q[np.arange(batch_size), actions_arr] = grad_errors / batch_size
 
         features: np.ndarray = cache["features"]
         trunk_activations: List[np.ndarray] = cache["trunk_activations"]
@@ -296,7 +348,7 @@ class MLPQNetwork:
         grad_b = [*grad_trunk_b, grad_value_b, grad_advantage_b]
 
         optimizer.step(param_w, param_b, grad_w, grad_b)
-        return loss, td_abs_mean
+        return loss_value, td_abs_mean
 
     def train_batch(
         self,
@@ -304,14 +356,32 @@ class MLPQNetwork:
         actions: Sequence[int] | np.ndarray,
         targets: Sequence[float] | np.ndarray,
         optimizer: AdamOptimizer,
+        loss: str = "mse",
+        huber_delta: float = 1.0,
     ) -> Tuple[float, float]:
         actions_arr = np.asarray(actions, dtype=np.int64)
         targets_arr = np.asarray(targets, dtype=np.float32)
 
         q_values, cache = self.forward(states)
         if self.dueling:
-            return self._train_batch_dueling(q_values, cache, actions_arr, targets_arr, optimizer)
-        return self._train_batch_non_dueling(q_values, cache, actions_arr, targets_arr, optimizer)
+            return self._train_batch_dueling(
+                q_values,
+                cache,
+                actions_arr,
+                targets_arr,
+                optimizer,
+                loss=loss,
+                huber_delta=huber_delta,
+            )
+        return self._train_batch_non_dueling(
+            q_values,
+            cache,
+            actions_arr,
+            targets_arr,
+            optimizer,
+            loss=loss,
+            huber_delta=huber_delta,
+        )
 
     def copy_from(self, other: "MLPQNetwork") -> None:
         if self.dueling != other.dueling:

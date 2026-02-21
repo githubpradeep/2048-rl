@@ -3,6 +3,7 @@
 from .fruit_cutter import FruitCutterConfig, FruitCutterEnv, FruitCutterGame
 from .shooter import ShooterConfig, ShooterEnv, ShooterGame
 from .snake import SnakeConfig, SnakeEnv, SnakeGame
+from .tetris import TetrisConfig, TetrisEnv, TetrisGame, TetrisPlacementEnv
 
 __all__ = [
     "SnakeConfig",
@@ -14,4 +15,8 @@ __all__ = [
     "ShooterConfig",
     "ShooterEnv",
     "ShooterGame",
+    "TetrisConfig",
+    "TetrisEnv",
+    "TetrisPlacementEnv",
+    "TetrisGame",
 ]
