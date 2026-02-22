@@ -6,7 +6,7 @@ This project implements everything from scratch in Python for training an RL age
 - from-scratch DQN (NumPy-backed MLP + manual backprop + Adam + replay buffer + target network)
 - evaluation script
 - autoplay demo script (terminal + pygame visualization)
-- multi-game scaffold with Snake + Fruit Cutter + Shooter + Tetris
+- multi-game scaffold with Snake + Fruit Cutter + Shooter + Tetris + Flappy Bird
 
 No `gymnasium` and no `stable-baselines3` are used.
 
@@ -40,6 +40,7 @@ pip install -r requirements.txt
 - `src/games/fruit_cutter.py`: Fruit Cutter engine + env
 - `src/games/shooter.py`: Shooter engine + env
 - `src/games/tetris.py`: Tetris engine + env
+- `src/games/flappy.py`: Flappy Bird engine + env
 - `src/train_fruit_dqn.py`: Fruit Cutter DQN training loop
 - `src/evaluate_fruit.py`: Fruit Cutter policy evaluation
 - `src/play_fruit_agent.py`: Fruit Cutter autoplay demo
@@ -52,6 +53,10 @@ pip install -r requirements.txt
 - `src/evaluate_tetris.py`: Tetris policy evaluation
 - `src/play_tetris_agent.py`: Tetris autoplay demo
 - `src/tetris_eval_utils.py`: Tetris eval helpers
+- `src/train_flappy_dqn.py`: Flappy Bird DQN training loop
+- `src/evaluate_flappy.py`: Flappy Bird policy evaluation
+- `src/play_flappy_agent.py`: Flappy Bird autoplay demo
+- `src/flappy_eval_utils.py`: Flappy Bird eval helpers
 - `src/train_tetris_afterstate.py`: Tetris afterstate-value training loop
 - `src/evaluate_tetris_afterstate.py`: Tetris afterstate evaluation
 - `src/play_tetris_afterstate_agent.py`: Tetris afterstate autoplay demo
@@ -231,6 +236,7 @@ python -m src.train_game snake --episodes 3000 --save-dir models/snake_generic
 python -m src.train_game fruit --episodes 2000 --save-dir models/fruit_generic
 python -m src.train_game shooter --episodes 2500 --save-dir models/shooter_generic
 python -m src.train_game tetris --episodes 3000 --save-dir models/tetris_generic
+python -m src.train_game flappy --episodes 3000 --save-dir models/flappy_generic
 python -m src.train_game 2048 --episodes 2000 --save-dir models/2048_generic
 ```
 
@@ -241,6 +247,7 @@ python -m src.evaluate_game snake --model models/snake_generic/snake_dqn_best.js
 python -m src.evaluate_game fruit --model models/fruit_generic/fruit_dqn_best.json --episodes 100
 python -m src.evaluate_game shooter --model models/shooter_generic/shooter_dqn_best.json --episodes 100
 python -m src.evaluate_game tetris --model models/tetris_generic/tetris_dqn_best.json --episodes 100
+python -m src.evaluate_game flappy --model models/flappy_generic/flappy_dqn_best.json --episodes 100
 python -m src.evaluate_game 2048 --model models/2048_generic/dqn_2048_best.json --episodes 100
 ```
 
@@ -251,6 +258,7 @@ python -m src.play_game snake --model models/snake_generic/snake_dqn_best.json -
 python -m src.play_game fruit --model models/fruit_generic/fruit_dqn_best.json --mode pygame
 python -m src.play_game shooter --model models/shooter_generic/shooter_dqn_best.json --mode pygame
 python -m src.play_game tetris --model models/tetris_generic/tetris_dqn_best.json --mode pygame
+python -m src.play_game flappy --model models/flappy_generic/flappy_dqn_best.json --mode pygame
 python -m src.play_game 2048 --model models/2048_generic/dqn_2048_best.json --mode pygame
 ```
 
@@ -355,4 +363,34 @@ python -m src.play_tetris_afterstate_agent \
   --model models/tetris_afterstate/tetris_afterstate_best.json \
   --mode pygame --delay 0.08 \
   --height 10 --width 6 --max-steps 500
+```
+
+## Flappy Bird (Game #6)
+
+Train:
+
+```bash
+python -m src.train_flappy_dqn --episodes 3000 --eval-every 50 --eval-episodes 30 --save-dir models/flappy
+```
+
+Double DQN + dueling:
+
+```bash
+python -m src.train_flappy_dqn \
+  --episodes 4000 \
+  --double-dqn \
+  --dueling \
+  --save-dir models/flappy_ddqn_dueling
+```
+
+Evaluate:
+
+```bash
+python -m src.evaluate_flappy --model models/flappy/flappy_dqn_best.json --episodes 200
+```
+
+Autoplay:
+
+```bash
+python -m src.play_flappy_agent --model models/flappy/flappy_dqn_best.json --mode pygame --delay 0.08
 ```
