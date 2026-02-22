@@ -7,6 +7,7 @@ import sys
 
 TRAIN_MODULES = {
     "2048": "src.train_dqn",
+    "breakout": "src.train_breakout_dqn",
     "snake": "src.train_snake_dqn",
     "fruit": "src.train_fruit_dqn",
     "flappy": "src.train_flappy_dqn",
