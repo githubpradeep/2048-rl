@@ -1,0 +1,35 @@
+env: pacman
+common:
+  seed: 42
+train:
+  episodes: 4000
+  grid-size: 11
+  state-grid-size: 11
+  num-ghosts: 2
+  ghost-chase-prob: 0.75
+  max-steps: 500
+  double-dqn: true
+  dueling: true
+  hidden-sizes: "256,256"
+  lr: 0.0005
+  eps-decay-steps: 120000
+  eval-every: 50
+  eval-episodes: 50
+  save-dir: models/pacman
+eval:
+  model: models/pacman/pacman_dqn_best.json
+  episodes: 200
+  grid-size: 11
+  state-grid-size: 11
+  num-ghosts: 2
+  ghost-chase-prob: 0.75
+  max-steps: 500
+play:
+  model: models/pacman/pacman_dqn_best.json
+  grid-size: 11
+  state-grid-size: 11
+  num-ghosts: 2
+  ghost-chase-prob: 0.75
+  max-steps: 500
+  mode: pygame
+  delay: 0.08

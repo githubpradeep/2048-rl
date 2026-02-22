@@ -16,6 +16,7 @@ PLAY_MODULES = {
     "flappy_tabular": "src.plugins.playback.play_flappy_tabular",
     "fruit": "src.plugins.playback.play_fruit_agent",
     "match3": "src.plugins.playback.play_match3_agent",
+    "pacman": "src.plugins.playback.play_pacman_agent",
     "pong": "src.plugins.playback.play_pong_agent",
     "shooter": "src.plugins.playback.play_shooter_agent",
     "snake": "src.plugins.playback.play_snake_agent",

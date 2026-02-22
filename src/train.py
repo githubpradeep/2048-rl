@@ -14,13 +14,14 @@ SUPPORTED_ENVS = (
     "flappy_tabular",
     "fruit",
     "match3",
+    "pacman",
     "pong",
     "shooter",
     "snake",
     "tetris",
     "tetris_afterstate",
 )
-DQN_ENVS = {"2048", "breakout", "flappy", "fruit", "match3", "pong", "shooter", "snake", "tetris"}
+DQN_ENVS = {"2048", "breakout", "flappy", "fruit", "match3", "pacman", "pong", "shooter", "snake", "tetris"}
 
 
 def _load_yaml(path: Path) -> dict[str, Any]:

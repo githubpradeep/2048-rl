@@ -15,11 +15,13 @@ from .games.breakout import BreakoutConfig, BreakoutEnv
 from .games.flappy import FlappyEnv
 from .games.fruit_cutter import FruitCutterConfig, FruitCutterEnv
 from .games.match3 import Match3Config, Match3Env
+from .games.pacman_lite import PacmanLiteConfig, PacmanLiteEnv
 from .games.pong import PongConfig, PongEnv
 from .games.shooter import ShooterConfig, ShooterEnv
 from .games.snake import SnakeConfig, SnakeEnv, SnakeFeatureEnv
 from .games.tetris import TetrisConfig, TetrisEnv, TetrisPlacementEnv
 from .evals.match3_eval_utils import evaluate_match3_policy
+from .evals.pacman_eval_utils import evaluate_pacman_policy
 from .network import AdamOptimizer, MLPQNetwork
 from .evals.pong_eval_utils import evaluate_pong_policy
 from .replay_buffer import ReplayBuffer
@@ -318,6 +320,27 @@ def build_dqn_hooks(env_name: str, params: dict[str, Any], seed: int, episodes: 
         def ev(eval_env, net, n, seed_start): return evaluate_match3_policy(eval_env, net, episodes=n, seed_start=seed_start, max_steps=cfg.max_steps)
         def ev_sum(stats): return f"avg_score={stats.avg_score:.2f} median={stats.median_score:.2f} avg_tiles={stats.avg_tiles_cleared:.2f} avg_cascades={stats.avg_cascades:.2f} invalid_rate={stats.invalid_rate:.3f}"
         return env, TrainHooks(env_name, "match3_dqn_best.json", "match3_dqn_final.json", ep_env, ev_env, ev, ev_sum, lambda s: float(s.avg_score), use_legal_masks=True), extra
+
+    if env_name == "pacman":
+        grid = int(_cfg(params, "grid_size", 11))
+        state_grid = int(_cfg(params, "state_grid_size", 0)) or grid
+        cfg = PacmanLiteConfig(
+            grid_size=grid,
+            num_ghosts=int(_cfg(params, "num_ghosts", 2)),
+            ghost_chase_prob=float(_cfg(params, "ghost_chase_prob", 0.75)),
+            pellet_reward=float(_cfg(params, "pellet_reward", 1.0)),
+            step_reward=float(_cfg(params, "step_reward", -0.02)),
+            ghost_collision_penalty=float(_cfg(params, "ghost_collision_penalty", -5.0)),
+            clear_bonus=float(_cfg(params, "clear_bonus", 8.0)),
+            max_steps=int(_cfg(params, "max_steps", 500)),
+            start_lives=int(_cfg(params, "start_lives", 3)),
+        )
+        env = PacmanLiteEnv(config=cfg, seed=seed, state_grid_size=state_grid)
+        def ep_env(ep: int): return PacmanLiteEnv(config=cfg, seed=seed + ep, state_grid_size=state_grid)
+        def ev_env(): return PacmanLiteEnv(config=cfg, seed=seed + 999, state_grid_size=state_grid)
+        def ev(eval_env, net, n, seed_start): return evaluate_pacman_policy(eval_env, net, episodes=n, seed_start=seed_start, max_steps=cfg.max_steps)
+        def ev_sum(stats): return f"avg_score={stats.avg_score:.2f} median={stats.median_score:.2f} avg_steps={stats.avg_steps:.2f} avg_lives={stats.avg_lives_left:.2f} clears={100.0*stats.clear_rate:.1f}%"
+        return env, TrainHooks(env_name, "pacman_dqn_best.json", "pacman_dqn_final.json", ep_env, ev_env, ev, ev_sum, lambda s: float(s.avg_score), use_legal_masks=True), extra
 
     if env_name == "tetris":
         placement_actions = bool(_cfg(params, "placement_actions", False))
