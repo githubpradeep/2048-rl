@@ -9,6 +9,7 @@ PLAY_MODULES = {
     "2048": "src.play_agent",
     "breakout": "src.play_breakout_agent",
     "pong": "src.play_pong_agent",
+    "match3": "src.play_match3_agent",
     "snake": "src.play_snake_agent",
     "fruit": "src.play_fruit_agent",
     "flappy": "src.play_flappy_agent",

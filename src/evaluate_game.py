@@ -9,6 +9,7 @@ EVAL_MODULES = {
     "2048": "src.evaluate",
     "breakout": "src.evaluate_breakout",
     "pong": "src.evaluate_pong",
+    "match3": "src.evaluate_match3",
     "snake": "src.evaluate_snake",
     "fruit": "src.evaluate_fruit",
     "flappy": "src.evaluate_flappy",
