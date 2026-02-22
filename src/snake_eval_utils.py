@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from statistics import median
 
-from .games.snake import SnakeEnv
+from .games.snake import SnakeEnv, SnakeFeatureEnv
 from .network import MLPQNetwork
 
 
@@ -23,7 +23,7 @@ def masked_argmax(values: list[float], legal_actions: list[int]) -> int:
 
 
 def evaluate_snake_policy(
-    env: SnakeEnv,
+    env: SnakeEnv | SnakeFeatureEnv,
     network: MLPQNetwork,
     episodes: int,
     seed_start: int = 20000,

@@ -4,7 +4,7 @@ import argparse
 import time
 from dataclasses import dataclass
 
-from .games.snake import SnakeConfig, SnakeEnv
+from .games.snake import SnakeConfig, SnakeEnv, SnakeFeatureEnv
 from .network import MLPQNetwork
 
 
@@ -170,6 +170,7 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=2026)
     parser.add_argument("--grid-size", type=int, default=10)
     parser.add_argument("--state-grid-size", type=int, default=0)
+    parser.add_argument("--state-mode", type=str, choices=["board", "features"], default="board")
     parser.add_argument("--delay", type=float, default=0.08)
     parser.add_argument("--max-steps", type=int, default=2000)
     parser.add_argument("--mode", choices=["terminal", "pygame"], default="terminal")
@@ -177,7 +178,10 @@ def main() -> None:
     args = parser.parse_args()
 
     state_grid_size = args.state_grid_size if args.state_grid_size > 0 else args.grid_size
-    env = SnakeEnv(config=SnakeConfig(grid_size=args.grid_size), seed=args.seed, state_grid_size=state_grid_size)
+    if args.state_mode == "features":
+        env = SnakeFeatureEnv(config=SnakeConfig(grid_size=args.grid_size), seed=args.seed)
+    else:
+        env = SnakeEnv(config=SnakeConfig(grid_size=args.grid_size), seed=args.seed, state_grid_size=state_grid_size)
     network = MLPQNetwork.load(args.model)
 
     if args.mode == "pygame":

@@ -2,7 +2,7 @@ import unittest
 
 import numpy as np
 
-from src.games.snake import LEFT, RIGHT, SnakeConfig, SnakeEnv, SnakeGame
+from src.games.snake import LEFT, RIGHT, UP, SnakeConfig, SnakeEnv, SnakeFeatureEnv, SnakeGame
 
 
 class TestSnakeGame(unittest.TestCase):
@@ -49,6 +49,21 @@ class TestSnakeGame(unittest.TestCase):
         result = game.step(RIGHT)
         self.assertTrue(result.done)
         self.assertTrue(result.collision)
+
+    def test_moving_into_tail_cell_is_legal_when_not_eating(self) -> None:
+        cfg = SnakeConfig(grid_size=6, distance_reward_scale=0.0, step_reward=0.0)
+        game = SnakeGame(config=cfg, seed=9)
+        game.reset(seed=9)
+        # Head at (3,2); moving UP enters current tail cell (2,2), which is legal when tail moves away.
+        game.snake = [(2, 2), (2, 1), (3, 1), (3, 2)]
+        game.direction = UP
+        game.food = (0, 0)  # ensure not eating
+
+        result = game.step(UP)
+
+        self.assertFalse(result.done)
+        self.assertFalse(result.collision)
+        self.assertEqual(game.snake[-1], (2, 2))
 
     def test_starvation_ends_game(self) -> None:
         cfg = SnakeConfig(
@@ -114,6 +129,28 @@ class TestSnakeEnv(unittest.TestCase):
         env.reset(seed=6)
         legal = env.legal_actions()
         self.assertNotIn(LEFT, legal)
+
+
+class TestSnakeFeatureEnv(unittest.TestCase):
+    def test_feature_state_shape(self) -> None:
+        env = SnakeFeatureEnv(config=SnakeConfig(grid_size=8), seed=5)
+        state = env.reset(seed=5)
+        self.assertEqual(state.shape, (23,))
+        self.assertEqual(state.dtype, np.float32)
+
+    def test_immediate_danger_flags_are_relative_to_heading(self) -> None:
+        env = SnakeFeatureEnv(config=SnakeConfig(grid_size=6), seed=10)
+        env.reset(seed=10)
+        # Head at (3,2), moving RIGHT. Body blocks only the left-turn cell (UP from head).
+        env.game.snake = [(0, 0), (2, 2), (3, 2)]
+        env.game.direction = RIGHT
+        env.game.food = (5, 5)
+
+        state = env.get_state()
+        danger_straight, danger_left, danger_right = state[0], state[1], state[2]
+        self.assertEqual(danger_straight, 0.0)
+        self.assertEqual(danger_left, 1.0)
+        self.assertEqual(danger_right, 0.0)
 
 
 if __name__ == "__main__":

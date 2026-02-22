@@ -26,6 +26,14 @@ OPPOSITE_DIRECTION: Dict[int, int] = {
 }
 
 
+def turn_left(direction: int) -> int:
+    return (direction - 1) % 4
+
+
+def turn_right(direction: int) -> int:
+    return (direction + 1) % 4
+
+
 @dataclass
 class SnakeStepResult:
     done: bool
@@ -107,6 +115,14 @@ class SnakeGame:
     def _manhattan(a: Tuple[int, int], b: Tuple[int, int]) -> int:
         return abs(a[0] - b[0]) + abs(a[1] - b[1])
 
+    def would_collide(self, next_head: Tuple[int, int]) -> bool:
+        ate_food = next_head == self.food
+        out_of_bounds = not (0 <= next_head[0] < self.grid_size and 0 <= next_head[1] < self.grid_size)
+        # Moving into the current tail cell is legal when not eating because the tail moves away.
+        occupied = self.snake if ate_food else self.snake[1:]
+        hit_body = next_head in occupied
+        return out_of_bounds or hit_body
+
     def step(self, action: int) -> SnakeStepResult:
         if action not in DIRECTION_VECTORS:
             raise ValueError(f"Invalid action {action}")
@@ -125,11 +141,9 @@ class SnakeGame:
         head_r, head_c = self.snake[-1]
         old_distance = self._manhattan((head_r, head_c), self.food)
         next_head = (head_r + dr, head_c + dc)
+        ate_food = next_head == self.food
 
-        out_of_bounds = not (0 <= next_head[0] < self.grid_size and 0 <= next_head[1] < self.grid_size)
-        hit_body = next_head in self.snake
-
-        if out_of_bounds or hit_body:
+        if self.would_collide(next_head):
             reward = self.config.death_penalty
             if reversed_input:
                 reward += self.config.reverse_penalty
@@ -137,7 +151,6 @@ class SnakeGame:
 
         self.snake.append(next_head)
 
-        ate_food = next_head == self.food
         if ate_food:
             self.score += 1
             self.steps_since_food = 0
@@ -235,6 +248,130 @@ class SnakeEnv:
         state[1, head_rows + offset, head_cols + offset] = 1.0
         state[2, food_rows + offset, food_cols + offset] = 1.0
         return state.reshape(-1)
+
+    def legal_actions(self) -> list[int]:
+        return self.game.legal_actions()
+
+    def step(self, action: int):
+        result = self.game.step(action)
+        info = {
+            "score": int(self.game.score),
+            "length": int(len(self.game.snake)),
+            "steps": int(self.game.steps),
+            "ate_food": bool(result.ate_food),
+            "collision": bool(result.collision),
+            "reversed_input": bool(result.reversed_input),
+        }
+        return self.get_state(), float(result.reward), bool(result.done), info
+
+    def render(self) -> str:
+        return self.game.render()
+
+
+class SnakeFeatureEnv:
+    """RL environment wrapper for Snake using engineered features instead of a board tensor."""
+
+    action_size = 4
+
+    def __init__(self, config: SnakeConfig | None = None, seed: int | None = None) -> None:
+        self.game = SnakeGame(config=config, seed=seed)
+
+    def reset(self, seed: int | None = None) -> np.ndarray:
+        self.game.reset(seed=seed)
+        return self.get_state()
+
+    def _next_pos(self, origin: Tuple[int, int], direction: int) -> Tuple[int, int]:
+        dr, dc = DIRECTION_VECTORS[direction]
+        return (origin[0] + dr, origin[1] + dc)
+
+    def _clear_distance(self, direction: int) -> float:
+        """Free cells until collision in a ray direction, normalized to [0, 1]."""
+        head = self.game.snake[-1]
+        pos = head
+        free = 0
+        max_free = max(self.game.grid_size - 1, 1)
+        for _ in range(max_free):
+            pos = self._next_pos(pos, direction)
+            if self.game.would_collide(pos):
+                break
+            free += 1
+        return float(free) / float(max_free)
+
+    def _food_relative_egocentric(self) -> Tuple[float, float, float, float]:
+        head_r, head_c = self.game.snake[-1]
+        food_r, food_c = self.game.food
+        dr = food_r - head_r
+        dc = food_c - head_c
+
+        forward_dir = self.game.direction
+        right_dir = turn_right(forward_dir)
+        fvr, fvc = DIRECTION_VECTORS[forward_dir]
+        rvr, rvc = DIRECTION_VECTORS[right_dir]
+
+        forward_comp = dr * fvr + dc * fvc
+        right_comp = dr * rvr + dc * rvc
+        food_ahead = 1.0 if forward_comp > 0 else 0.0
+        food_right = 1.0 if right_comp > 0 else 0.0
+        food_behind = 1.0 if forward_comp < 0 else 0.0
+        food_left = 1.0 if right_comp < 0 else 0.0
+        return food_ahead, food_right, food_behind, food_left
+
+    def get_state(self) -> np.ndarray:
+        head_r, head_c = self.game.snake[-1]
+        food_r, food_c = self.game.food
+        grid = self.game.grid_size
+        max_dist = max(2 * (grid - 1), 1)
+        food_manhattan = abs(food_r - head_r) + abs(food_c - head_c)
+
+        direction = self.game.direction
+        dir_left = turn_left(direction)
+        dir_right = turn_right(direction)
+
+        next_straight = self._next_pos((head_r, head_c), direction)
+        next_left = self._next_pos((head_r, head_c), dir_left)
+        next_right = self._next_pos((head_r, head_c), dir_right)
+
+        danger_straight = 1.0 if self.game.would_collide(next_straight) else 0.0
+        danger_left = 1.0 if self.game.would_collide(next_left) else 0.0
+        danger_right = 1.0 if self.game.would_collide(next_right) else 0.0
+
+        food_ahead, food_right_rel, food_behind, food_left_rel = self._food_relative_egocentric()
+
+        features = np.array(
+            [
+                # Immediate collision risk (relative to current heading)
+                danger_straight,
+                danger_left,
+                danger_right,
+                # Free space depth in relative directions
+                self._clear_distance(direction),
+                self._clear_distance(dir_left),
+                self._clear_distance(dir_right),
+                # Current heading (absolute one-hot)
+                1.0 if direction == UP else 0.0,
+                1.0 if direction == RIGHT else 0.0,
+                1.0 if direction == DOWN else 0.0,
+                1.0 if direction == LEFT else 0.0,
+                # Food location (absolute relative to head)
+                1.0 if food_r < head_r else 0.0,
+                1.0 if food_c > head_c else 0.0,
+                1.0 if food_r > head_r else 0.0,
+                1.0 if food_c < head_c else 0.0,
+                # Food location (egocentric relative to heading)
+                food_ahead,
+                food_left_rel,
+                food_right_rel,
+                food_behind,
+                # Normalized geometry/progress signals
+                float(food_r - head_r) / float(max(grid - 1, 1)),
+                float(food_c - head_c) / float(max(grid - 1, 1)),
+                float(food_manhattan) / float(max_dist),
+                float(len(self.game.snake)) / float(grid * grid),
+                float(self.game.steps_since_food) / float(max(self.game.config.max_steps_without_food, 1)),
+            ],
+            dtype=np.float32,
+        )
+        return features
 
     def legal_actions(self) -> list[int]:
         return self.game.legal_actions()
