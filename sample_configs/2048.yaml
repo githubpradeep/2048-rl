@@ -2,7 +2,7 @@ env: 2048
 common:
   seed: 42
 train:
-  episodes: 3000
+  episodes: 1500
   eval-every: 50
   eval-episodes: 50
   save-dir: models/2048

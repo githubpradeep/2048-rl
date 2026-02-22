@@ -121,13 +121,16 @@ def main() -> None:
         raise ValueError(f"Config env mismatch: config has env={declared_env!r}, CLI requested env={args.env!r}")
 
     common = _normalize_section(config.get("common"), "common")
+    eval_cfg = _normalize_section(config.get("eval"), "eval")
     play_cfg = _normalize_section(config.get("play"), "play")
-    if not play_cfg:
-        play_cfg = _fallback_play_from_eval(_normalize_section(config.get("eval"), "eval"))
-    if not play_cfg:
+    # Play should inherit env/model compatibility fields from eval (e.g. state-mode, grid-size),
+    # while allowing the play section to override display/runtime settings.
+    base_play = _fallback_play_from_eval(eval_cfg)
+    merged_play = {**base_play, **play_cfg}
+    if not merged_play:
         raise ValueError(f"Config has neither `play` nor usable `eval` section: {config_path}")
 
-    params = {**common, **play_cfg}
+    params = {**common, **merged_play}
     if rest:
         params.update(_parse_overrides(rest))
 
