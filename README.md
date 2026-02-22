@@ -1,18 +1,35 @@
-# 2048 RL From Scratch (NumPy)
+# RL Arcade From Scratch (NumPy)
 
-This project implements everything from scratch in Python for training an RL agent on 2048:
-- 2048 game engine
-- custom RL environment API (`reset/step/get_state`)
-- from-scratch DQN (NumPy-backed MLP + manual backprop + Adam + replay buffer + target network)
-- evaluation script
-- autoplay demo script (terminal + pygame visualization)
-- multi-game scaffold with Snake + Fruit Cutter + Shooter + Tetris + Flappy Bird
+A from-scratch reinforcement learning game framework in pure Python + NumPy.
 
-No `gymnasium` and no `stable-baselines3` are used.
+This repo started with 2048 and now includes multiple games, custom environments, training/eval/play scripts, pygame visualizations, and several algorithm variants (DQN, DDQN+dueling, tabular Q-learning, afterstate value learning for Tetris).
 
-## Full Tutorial
+No `gymnasium`. No `stable-baselines3`.
 
-- Detailed walkthrough: `docs/2048_rl_tutorial.md`
+## What is implemented
+
+### Core RL stack
+- Custom environment interfaces (`reset`, `step`, `legal_actions`, `get_state`)
+- NumPy MLP Q-network with manual backprop (`src/network.py`)
+- Custom Adam optimizer (`src/network.py`)
+- Replay buffer with optional legal-action masks (`src/replay_buffer.py`)
+- DQN / Double DQN / Dueling options (game-dependent)
+- Evaluation scripts + autoplay demos (terminal + pygame)
+
+### Games (current)
+- `2048` (DQN)
+- `Snake` (DQN, board state + feature state modes)
+- `Fruit Cutter` (DQN)
+- `Shooter` (DQN)
+- `Tetris` (DQN, primitive/placement actions)
+- `Tetris Afterstate` (value learning on placement afterstates)
+- `Flappy Bird` (DQN + tabular/discretized Q-learning + heuristic baseline)
+- `Breakout` (DQN)
+- `Pong` (DQN)
+- `Match-3` (DQN with legal-action masking + cascade engine)
+
+## Docs
+- Framework + 2048 deep dive + multi-game walkthrough: `docs/2048_rl_tutorial.md`
 
 ## Install
 
@@ -22,375 +39,302 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-## Project layout
-
-- `src/game_engine.py`: pure 2048 logic
-- `src/env.py`: custom environment wrapper
-- `src/network.py`: MLP Q-network + Adam optimizer
-- `src/replay_buffer.py`: replay buffer implementation
-- `src/train_dqn.py`: DQN training loop
-- `src/evaluate.py`: policy evaluation
-- `src/play_agent.py`: automatic gameplay demo
-- `src/games/base.py`: shared game interface
-- `src/games/snake.py`: Snake engine + Snake env
-- `src/train_snake_dqn.py`: Snake DQN training loop
-- `src/evaluate_snake.py`: Snake policy evaluation
-- `src/play_snake_agent.py`: Snake autoplay demo
-- `src/snake_eval_utils.py`: Snake eval helpers
-- `src/games/fruit_cutter.py`: Fruit Cutter engine + env
-- `src/games/shooter.py`: Shooter engine + env
-- `src/games/tetris.py`: Tetris engine + env
-- `src/games/flappy.py`: Flappy Bird engine + env
-- `src/train_fruit_dqn.py`: Fruit Cutter DQN training loop
-- `src/evaluate_fruit.py`: Fruit Cutter policy evaluation
-- `src/play_fruit_agent.py`: Fruit Cutter autoplay demo
-- `src/fruit_eval_utils.py`: Fruit eval helpers
-- `src/train_shooter_dqn.py`: Shooter DQN training loop
-- `src/evaluate_shooter.py`: Shooter policy evaluation
-- `src/play_shooter_agent.py`: Shooter autoplay demo
-- `src/shooter_eval_utils.py`: Shooter eval helpers
-- `src/train_tetris_dqn.py`: Tetris DQN training loop
-- `src/evaluate_tetris.py`: Tetris policy evaluation
-- `src/play_tetris_agent.py`: Tetris autoplay demo
-- `src/tetris_eval_utils.py`: Tetris eval helpers
-- `src/train_flappy_dqn.py`: Flappy Bird DQN training loop
-- `src/evaluate_flappy.py`: Flappy Bird policy evaluation
-- `src/play_flappy_agent.py`: Flappy Bird autoplay demo
-- `src/flappy_eval_utils.py`: Flappy Bird eval helpers
-- `src/train_tetris_afterstate.py`: Tetris afterstate-value training loop
-- `src/evaluate_tetris_afterstate.py`: Tetris afterstate evaluation
-- `src/play_tetris_afterstate_agent.py`: Tetris afterstate autoplay demo
-- `src/tetris_afterstate_utils.py`: Tetris afterstate helpers
-- `src/train_game.py`: generic train dispatcher (`2048|snake|fruit|shooter|tetris`)
-- `src/evaluate_game.py`: generic evaluate dispatcher
-- `src/play_game.py`: generic play dispatcher
-- `tests/`: unit tests
-
 ## Run tests
 
 ```bash
 python -m unittest discover -s tests -v
 ```
 
-## Train
+## Project layout (main files)
 
-```bash
-python -m src.train_dqn --episodes 2000 --eval-every 50 --eval-episodes 30
-```
+### Shared RL infrastructure
+- `src/network.py`: NumPy MLP Q-network + Adam optimizer
+- `src/replay_buffer.py`: replay buffer (supports legal-action masks)
+- `src/train_game.py`: generic DQN trainer dispatcher
+- `src/evaluate_game.py`: generic evaluator dispatcher
+- `src/play_game.py`: generic autoplay dispatcher
 
-Useful training flags:
+### 2048
+- `src/game_engine.py`, `src/env.py`
+- `src/train_dqn.py`, `src/evaluate.py`, `src/play_agent.py`
+- `src/eval_utils.py`
 
-```bash
-python -m src.train_dqn \
-  --episodes 1000 \
-  --batch-size 128 \
-  --buffer-size 100000 \
-  --warmup-steps 5000 \
-  --target-update 1000 \
-  --lr 0.001 \
-  --hidden-sizes 128,128
-```
+### Snake
+- `src/games/snake.py`
+- `src/train_snake_dqn.py`, `src/evaluate_snake.py`, `src/play_snake_agent.py`
+- `src/snake_eval_utils.py`
+- `src/benchmark_snake_dqn.py`
 
-Models are saved in `models/` as:
-- `dqn_2048_best.json`
-- `dqn_2048_final.json`
+### Fruit / Shooter
+- `src/games/fruit_cutter.py`, `src/games/shooter.py`
+- `src/train_fruit_dqn.py`, `src/evaluate_fruit.py`, `src/play_fruit_agent.py`
+- `src/train_shooter_dqn.py`, `src/evaluate_shooter.py`, `src/play_shooter_agent.py`
 
-## Evaluate
+### Tetris
+- `src/games/tetris.py`
+- `src/train_tetris_dqn.py`, `src/evaluate_tetris.py`, `src/play_tetris_agent.py`
+- `src/train_tetris_afterstate.py`, `src/evaluate_tetris_afterstate.py`, `src/play_tetris_afterstate_agent.py`
 
-```bash
-python -m src.evaluate --model models/dqn_2048_best.json --episodes 100
-```
+### Flappy Bird
+- `src/games/flappy.py`
+- `src/flappy_env_config.py` (presets + metadata + env mismatch checks)
+- `src/flappy_heuristic.py`, `src/flappy_tabular.py`
+- `src/train_flappy_dqn.py`, `src/evaluate_flappy.py`, `src/play_flappy_agent.py`
+- `src/train_flappy_tabular.py`, `src/evaluate_flappy_tabular.py`, `src/play_flappy_tabular.py`
+- `src/evaluate_flappy_heuristic.py`, `src/play_flappy_heuristic.py`
 
-## Autoplay demo
+### Breakout / Pong / Match-3
+- `src/games/breakout.py`, `src/games/pong.py`, `src/games/match3.py`
+- `src/train_breakout_dqn.py`, `src/evaluate_breakout.py`, `src/play_breakout_agent.py`
+- `src/train_pong_dqn.py`, `src/evaluate_pong.py`, `src/play_pong_agent.py`
+- `src/train_match3_dqn.py`, `src/evaluate_match3.py`, `src/play_match3_agent.py`
 
-Terminal mode:
+## Quick start by game
 
-```bash
-python -m src.play_agent --model models/dqn_2048_best.json --mode terminal --delay 0.1
-```
-
-Debug each transition (before/after board):
-
-```bash
-python -m src.play_agent --model models/dqn_2048_best.json --mode terminal --delay 0.3 --debug
-```
-
-Pygame visualization mode:
-
-```bash
-python -m src.play_agent --model models/dqn_2048_best.json --mode pygame --delay 0.08
-```
-
-Controls in pygame mode:
-- `Q` or `ESC`: quit
-
-Optional pygame flag:
-
-```bash
-python -m src.play_agent --model models/dqn_2048_best.json --mode pygame --close-on-end
-```
-
-## Snake (Game #2)
+### 2048 (DQN)
 
 Train:
-
 ```bash
-python -m src.train_snake_dqn --episodes 1500 --eval-every 50 --eval-episodes 25 --save-dir models/snake
-```
-
-Double DQN + dueling architecture:
-
-```bash
-python -m src.train_snake_dqn \
-  --episodes 5000 \
-  --curriculum-grid-sizes 8,10 \
-  --state-grid-size 10 \
-  --distance-reward-scale 0.2 \
-  --double-dqn \
-  --dueling \
-  --eval-every 50 \
-  --eval-episodes 50 \
-  --save-dir models/snake_ddqn_dueling
-```
-
-Curriculum train (8x8 -> 10x10 in one run):
-
-```bash
-python -m src.train_snake_dqn \
-  --episodes 5000 \
-  --curriculum-grid-sizes 8,10 \
-  --state-grid-size 10 \
-  --distance-reward-scale 0.2 \
-  --eval-every 50 \
-  --eval-episodes 50 \
-  --save-dir models/snake_v2
+python -m src.train_dqn --episodes 3000 --eval-every 50 --eval-episodes 50 --save-dir models/2048
 ```
 
 Evaluate:
-
 ```bash
-python -m src.evaluate_snake --model models/snake/snake_dqn_best.json --episodes 100
+python -m src.evaluate --model models/2048/dqn_2048_best.json --episodes 200
 ```
 
-Autoplay (terminal):
-
+Play (pygame):
 ```bash
-python -m src.play_snake_agent --model models/snake/snake_dqn_best.json --mode terminal --delay 0.1
+python -m src.play_agent --model models/2048/dqn_2048_best.json --mode pygame --delay 0.08
 ```
 
-Autoplay (pygame):
+### Snake (DQN)
 
+Recommended: feature-state mode (better learning than flat board MLP on 10x10).
+
+Train (feature state):
 ```bash
-python -m src.play_snake_agent --model models/snake/snake_dqn_best.json --mode pygame --delay 0.08
+python -m src.train_snake_dqn \
+  --state-mode features \
+  --episodes 5000 \
+  --curriculum-grid-sizes 6,8,10 \
+  --double-dqn --dueling \
+  --hidden-sizes 128,128 \
+  --lr 3e-4 \
+  --eps-decay-steps 40000 \
+  --eval-every 50 --eval-episodes 50 \
+  --save-dir models/snake_features
 ```
 
-If the model was trained with padded state grid, pass `--state-grid-size` consistently:
-
+Evaluate (feature state):
 ```bash
-python -m src.evaluate_snake --model models/snake_v2/snake_dqn_best.json --episodes 200 --grid-size 10 --state-grid-size 10
-python -m src.play_snake_agent --model models/snake_v2/snake_dqn_best.json --mode pygame --grid-size 10 --state-grid-size 10 --delay 0.06
+python -m src.evaluate_snake \
+  --model models/snake_features/snake_dqn_best.json \
+  --episodes 200 --grid-size 10 --state-mode features
 ```
 
-Benchmark baseline vs Double+Dueling (same seeds/settings):
+Play (pygame, feature state):
+```bash
+python -m src.play_snake_agent \
+  --model models/snake_features/snake_dqn_best.json \
+  --mode pygame --grid-size 10 --state-mode features --delay 0.06
+```
 
+Board-state mode (legacy / baseline) still works:
+```bash
+python -m src.train_snake_dqn --state-mode board --curriculum-grid-sizes 8,10 --state-grid-size 10 --double-dqn --dueling --save-dir models/snake_board
+```
+
+Benchmark baseline vs DDQN+dueling:
 ```bash
 python -m src.benchmark_snake_dqn --episodes 2000 --eval-episodes 100 --save-root models/snake_benchmark
 ```
 
-## Fruit Cutter (Game #3)
+### Fruit Cutter (DQN)
 
 Train:
-
 ```bash
-python -m src.train_fruit_dqn --episodes 2000 --eval-every 50 --eval-episodes 30 --save-dir models/fruit
+python -m src.train_fruit_dqn --episodes 3000 --double-dqn --dueling --save-dir models/fruit
 ```
 
-Double DQN + dueling:
-
-```bash
-python -m src.train_fruit_dqn \
-  --episodes 3000 \
-  --double-dqn \
-  --dueling \
-  --save-dir models/fruit_ddqn_dueling
-```
-
-Evaluate:
-
+Evaluate / Play:
 ```bash
 python -m src.evaluate_fruit --model models/fruit/fruit_dqn_best.json --episodes 200
-```
-
-Autoplay:
-
-```bash
 python -m src.play_fruit_agent --model models/fruit/fruit_dqn_best.json --mode pygame --delay 0.08
 ```
 
-## Generic Runner
-
-Train any game:
-
-```bash
-python -m src.train_game snake --episodes 3000 --save-dir models/snake_generic
-python -m src.train_game fruit --episodes 2000 --save-dir models/fruit_generic
-python -m src.train_game shooter --episodes 2500 --save-dir models/shooter_generic
-python -m src.train_game tetris --episodes 3000 --save-dir models/tetris_generic
-python -m src.train_game flappy --episodes 3000 --save-dir models/flappy_generic
-python -m src.train_game 2048 --episodes 2000 --save-dir models/2048_generic
-```
-
-Evaluate:
-
-```bash
-python -m src.evaluate_game snake --model models/snake_generic/snake_dqn_best.json --episodes 100
-python -m src.evaluate_game fruit --model models/fruit_generic/fruit_dqn_best.json --episodes 100
-python -m src.evaluate_game shooter --model models/shooter_generic/shooter_dqn_best.json --episodes 100
-python -m src.evaluate_game tetris --model models/tetris_generic/tetris_dqn_best.json --episodes 100
-python -m src.evaluate_game flappy --model models/flappy_generic/flappy_dqn_best.json --episodes 100
-python -m src.evaluate_game 2048 --model models/2048_generic/dqn_2048_best.json --episodes 100
-```
-
-Play:
-
-```bash
-python -m src.play_game snake --model models/snake_generic/snake_dqn_best.json --mode pygame
-python -m src.play_game fruit --model models/fruit_generic/fruit_dqn_best.json --mode pygame
-python -m src.play_game shooter --model models/shooter_generic/shooter_dqn_best.json --mode pygame
-python -m src.play_game tetris --model models/tetris_generic/tetris_dqn_best.json --mode pygame
-python -m src.play_game flappy --model models/flappy_generic/flappy_dqn_best.json --mode pygame
-python -m src.play_game 2048 --model models/2048_generic/dqn_2048_best.json --mode pygame
-```
-
-## Shooter (Game #4)
+### Shooter (DQN)
 
 Train:
-
 ```bash
-python -m src.train_shooter_dqn --episodes 2500 --eval-every 50 --eval-episodes 30 --save-dir models/shooter
+python -m src.train_shooter_dqn --episodes 3000 --double-dqn --dueling --save-dir models/shooter
 ```
 
-Double DQN + dueling:
-
-```bash
-python -m src.train_shooter_dqn \
-  --episodes 3000 \
-  --double-dqn \
-  --dueling \
-  --save-dir models/shooter_ddqn_dueling
-```
-
-Evaluate:
-
+Evaluate / Play:
 ```bash
 python -m src.evaluate_shooter --model models/shooter/shooter_dqn_best.json --episodes 200
-```
-
-Autoplay:
-
-```bash
 python -m src.play_shooter_agent --model models/shooter/shooter_dqn_best.json --mode pygame --delay 0.08
 ```
 
-## Tetris (Game #5)
+Note: some shooter play runs end at `max_steps` even if lives remain. That is a demo step limit, not necessarily game-over by lives.
 
-Train (primitive controls):
+### Tetris (DQN and Afterstate)
 
-```bash
-python -m src.train_tetris_dqn --episodes 3000 --eval-every 50 --eval-episodes 30 --save-dir models/tetris
-```
-
-Recommended: placement-action mode (one action = rotation+column), Double DQN + dueling:
-
+DQN (placement actions recommended):
 ```bash
 python -m src.train_tetris_dqn \
   --episodes 4000 \
   --height 10 --width 6 --max-steps 500 \
   --placement-actions \
-  --double-dqn \
-  --dueling \
-  --save-dir models/tetris_placement_ddqn_dueling
+  --double-dqn --dueling \
+  --save-dir models/tetris_placement_ddqn
 ```
 
-Evaluate:
-
+Evaluate / Play (placement DQN):
 ```bash
-python -m src.evaluate_tetris \
-  --model models/tetris_placement_ddqn_dueling/tetris_dqn_best.json \
-  --episodes 200 \
-  --height 10 --width 6 --max-steps 500 \
-  --placement-actions
+python -m src.evaluate_tetris --model models/tetris_placement_ddqn/tetris_dqn_best.json --episodes 200 --height 10 --width 6 --max-steps 500 --placement-actions
+python -m src.play_tetris_agent --model models/tetris_placement_ddqn/tetris_dqn_best.json --mode pygame --delay 0.08 --height 10 --width 6 --max-steps 500 --placement-actions
 ```
 
-Autoplay:
-
-```bash
-python -m src.play_tetris_agent \
-  --model models/tetris_placement_ddqn_dueling/tetris_dqn_best.json \
-  --mode pygame --delay 0.08 \
-  --height 10 --width 6 --max-steps 500 \
-  --placement-actions
-```
-
-Recommended for stronger learning: afterstate value mode (score each legal placement's resulting board).
-
-Train:
-
+Afterstate value learning (recommended stronger Tetris path in this repo):
 ```bash
 python -m src.train_tetris_afterstate \
   --episodes 5000 \
   --height 10 --width 6 --max-steps 500 \
-  --state-features classic4 \
-  --reward-style score_delta \
-  --huber-delta 5.0 \
   --eval-every 100 --eval-episodes 100 \
   --save-dir models/tetris_afterstate
 ```
 
-Evaluate:
-
+Evaluate / Play (afterstate):
 ```bash
-python -m src.evaluate_tetris_afterstate \
-  --model models/tetris_afterstate/tetris_afterstate_best.json \
-  --episodes 200 \
-  --height 10 --width 6 --max-steps 500
+python -m src.evaluate_tetris_afterstate --model models/tetris_afterstate/tetris_afterstate_best.json --episodes 200 --height 10 --width 6 --max-steps 500
+python -m src.play_tetris_afterstate_agent --model models/tetris_afterstate/tetris_afterstate_best.json --mode pygame --delay 0.08 --height 10 --width 6 --max-steps 500
 ```
 
-Autoplay:
+### Flappy Bird (heuristic baseline, DQN, tabular Q-learning)
 
+Start with the heuristic baseline to verify env solvability:
 ```bash
-python -m src.play_tetris_afterstate_agent \
-  --model models/tetris_afterstate/tetris_afterstate_best.json \
-  --mode pygame --delay 0.08 \
-  --height 10 --width 6 --max-steps 500
+python -m src.evaluate_flappy_heuristic --episodes 200 --env-preset standard
+python -m src.play_flappy_heuristic --mode pygame --delay 0.06 --env-preset standard
 ```
 
-## Flappy Bird (Game #6)
-
-Train:
-
-```bash
-python -m src.train_flappy_dqn --episodes 3000 --eval-every 50 --eval-episodes 30 --save-dir models/flappy
-```
-
-Double DQN + dueling:
-
+DQN train (recommended baseline uses env presets + metadata):
 ```bash
 python -m src.train_flappy_dqn \
+  --episodes 5000 \
+  --eval-every 100 --eval-episodes 100 \
+  --double-dqn --dueling \
+  --env-preset standard \
+  --save-dir models/flappy_standard
+```
+
+DQN evaluate / play (strict env-model match on by default):
+```bash
+python -m src.evaluate_flappy --model models/flappy_standard/flappy_dqn_best.json --episodes 200 --env-preset standard
+python -m src.play_flappy_agent --model models/flappy_standard/flappy_dqn_best.json --mode pygame --delay 0.06 --env-preset standard
+```
+
+Tabular/discretized Q-learning:
+```bash
+python -m src.train_flappy_tabular --episodes 10000 --eval-every 200 --eval-episodes 100 --env-preset standard --save-dir models/flappy_tabular
+python -m src.evaluate_flappy_tabular --model models/flappy_tabular/flappy_tabular_best.json --episodes 200 --env-preset standard
+python -m src.play_flappy_tabular --model models/flappy_tabular/flappy_tabular_best.json --mode pygame --delay 0.06 --env-preset standard
+```
+
+If you intentionally want to evaluate a Flappy model on different runtime env settings:
+```bash
+python -m src.evaluate_flappy --model models/flappy_standard/flappy_dqn_best.json --episodes 50 --env-preset hard --allow-env-mismatch --print-model-env
+```
+
+### Breakout (DQN)
+
+Train:
+```bash
+python -m src.train_breakout_dqn --episodes 3000 --eval-every 50 --eval-episodes 50 --double-dqn --dueling --save-dir models/breakout
+```
+
+Evaluate / Play:
+```bash
+python -m src.evaluate_breakout --model models/breakout/breakout_dqn_best.json --episodes 200
+python -m src.play_breakout_agent --model models/breakout/breakout_dqn_best.json --mode pygame --delay 0.06
+```
+
+### Pong (DQN)
+
+Train:
+```bash
+python -m src.train_pong_dqn --episodes 3000 --eval-every 50 --eval-episodes 50 --double-dqn --dueling --save-dir models/pong
+```
+
+Evaluate / Play:
+```bash
+python -m src.evaluate_pong --model models/pong/pong_dqn_best.json --episodes 200
+python -m src.play_pong_agent --model models/pong/pong_dqn_best.json --mode pygame --delay 0.06
+```
+
+### Match-3 (DQN with legal action masking)
+
+Train:
+```bash
+python -m src.train_match3_dqn \
   --episodes 4000 \
-  --double-dqn \
-  --dueling \
-  --save-dir models/flappy_ddqn_dueling
+  --eval-every 50 --eval-episodes 50 \
+  --double-dqn --dueling \
+  --save-dir models/match3
 ```
 
 Evaluate:
-
 ```bash
-python -m src.evaluate_flappy --model models/flappy/flappy_dqn_best.json --episodes 200
+python -m src.evaluate_match3 --model models/match3/match3_dqn_best.json --episodes 200
 ```
 
-Autoplay:
-
+Play with pygame move/pop animations:
 ```bash
-python -m src.play_flappy_agent --model models/flappy/flappy_dqn_best.json --mode pygame --delay 0.08
+python -m src.play_match3_agent \
+  --model models/match3/match3_dqn_best.json \
+  --mode pygame \
+  --delay 0.12 \
+  --select-delay 0.25 \
+  --move-delay 0.25 \
+  --clear-delay 0.18
 ```
+
+## Generic DQN runner (dispatch)
+
+Supported in generic dispatch: `2048`, `snake`, `fruit`, `shooter`, `tetris`, `flappy`, `breakout`, `pong`, `match3`.
+
+Train / evaluate / play examples:
+```bash
+python -m src.train_game pong --episodes 3000 --double-dqn --dueling --save-dir models/pong_generic
+python -m src.evaluate_game pong --model models/pong_generic/pong_dqn_best.json --episodes 200
+python -m src.play_game pong --model models/pong_generic/pong_dqn_best.json --mode pygame --delay 0.06
+```
+
+## Important compatibility notes
+
+### Flappy env metadata and presets
+- Flappy DQN/tabular checkpoints save environment metadata (preset + env config fingerprint).
+- Eval/play scripts validate runtime env flags against the saved model metadata by default.
+- Use `--allow-env-mismatch` only for explicit cross-env experiments.
+
+### Snake state mode compatibility
+- Snake models trained with `--state-mode board` are not compatible with `--state-mode features`, and vice versa.
+- Keep train/eval/play settings consistent.
+
+### `best` vs `final`
+- `*_best.json` is usually what you want to evaluate/showcase.
+- `*_final.json` is just the last checkpoint.
+
+## Common debugging tips
+
+- If training looks stuck early, check warmup and epsilon decay before changing architecture.
+- If autoplay is weak but train logs look good, compare the exact eval env config and model checkpoint (`best` vs `final`).
+- For Flappy, run the heuristic first to confirm env solvability.
+- For Match-3, use pygame animation delays to verify swaps and cascades visually.
+
+## Next improvements (shared infra)
+- Prioritized experience replay (PER)
+- n-step returns
+- Better checkpoint metadata for all games (not just Flappy)
+- Benchmark scripts for more games (like Flappy heuristic/tabular/DQN side-by-side)
