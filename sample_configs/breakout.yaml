@@ -1,0 +1,18 @@
+env: breakout
+common:
+  seed: 42
+train:
+  episodes: 3000
+  eval-every: 50
+  eval-episodes: 50
+  double-dqn: true
+  dueling: true
+  save-dir: models/breakout
+eval:
+  model: models/breakout/breakout_dqn_best.json
+  episodes: 200
+
+play:
+  model: models/breakout/breakout_dqn_best.json
+  mode: pygame
+  delay: 0.06

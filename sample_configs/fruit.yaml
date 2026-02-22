@@ -1,0 +1,18 @@
+env: fruit
+common:
+  seed: 42
+train:
+  episodes: 3000
+  double-dqn: true
+  dueling: true
+  eval-every: 50
+  eval-episodes: 50
+  save-dir: models/fruit
+eval:
+  model: models/fruit/fruit_dqn_best.json
+  episodes: 200
+
+play:
+  model: models/fruit/fruit_dqn_best.json
+  mode: pygame
+  delay: 0.06

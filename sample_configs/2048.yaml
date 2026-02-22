@@ -1,0 +1,18 @@
+env: 2048
+common:
+  seed: 42
+train:
+  episodes: 1500
+  eval-every: 50
+  eval-episodes: 50
+  save-dir: models/2048
+  double-dqn: true
+  dueling: true
+eval:
+  model: models/2048/dqn_2048_best.json
+  episodes: 200
+
+play:
+  model: models/2048/dqn_2048_best.json
+  mode: pygame
+  delay: 0.06

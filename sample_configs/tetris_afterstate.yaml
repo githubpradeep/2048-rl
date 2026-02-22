@@ -1,0 +1,22 @@
+env: tetris_afterstate
+common:
+  seed: 42
+train:
+  episodes: 5000
+  height: 10
+  width: 6
+  max-steps: 500
+  eval-every: 100
+  eval-episodes: 100
+  save-dir: models/tetris_afterstate
+eval:
+  model: models/tetris_afterstate/tetris_afterstate_best.json
+  episodes: 200
+  height: 10
+  width: 6
+  max-steps: 500
+
+play:
+  model: models/tetris_afterstate/tetris_afterstate_best.json
+  mode: pygame
+  delay: 0.06

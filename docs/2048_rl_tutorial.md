@@ -21,27 +21,51 @@ You can study both:
 
 Most games in this repo follow the same pattern:
 
-1. Pure game engine (`src/games/...` or `src/game_engine.py`)
+1. Pure game engine (`src/games/...`, e.g. `src/games/game2048_engine.py`)
 2. RL env wrapper (`reset`, `step`, `get_state`, `legal_actions`)
-3. Trainer script (`src/train_*`)
-4. Evaluator (`src/evaluate_*`)
-5. Autoplay demo (`src/play_*`, terminal + pygame)
+3. Unified trainer (`src/train.py`, YAML-driven; internal DQN engine in `src/generic_dqn_train.py`)
+4. Evaluator (`src/eval.py`)
+5. Unified autoplay demo (`src/play.py`, terminal + pygame)
 
 Core reusable files:
 - `src/network.py`: NumPy MLP + manual backprop + Adam
 - `src/replay_buffer.py`: replay storage (supports legal-action masks)
-- `src/train_game.py`, `src/evaluate_game.py`, `src/play_game.py`: generic DQN dispatchers
+- `src/train.py`, `src/eval.py`, `src/play.py`: config-driven unified wrappers (YAML-based)
+
+### Config-driven workflow (recommended)
+
+The repo now also supports a single train/eval/play entry point:
+
+```bash
+python -m src.train --env snake --config sample_configs/snake.yaml
+python -m src.eval --env snake --config sample_configs/snake.yaml
+python -m src.play --env snake --config sample_configs/snake.yaml
+```
+
+`sample_configs/*.yaml` store recommended defaults per env. Each config file uses:
+- `env`
+- `common`
+- `train`
+- `eval`
+- `play` (optional; `src.play` falls back to `eval` if missing)
+
+Use `--dry-run` to inspect the resolved underlying command:
+
+```bash
+python -m src.train --env flappy --config sample_configs/flappy.yaml --dry-run
+python -m src.play --env flappy --config sample_configs/flappy.yaml --dry-run
+```
 
 ## 3. The 2048 Baseline (Original Project)
 
 2048 remains the cleanest place to learn the basic DQN flow in this repo.
 
 ### 2048 pipeline
-- `src/game_engine.py`: deterministic 2048 rules
-- `src/env.py`: RL wrapper + state encoding + reward shaping
-- `src/train_dqn.py`: DQN trainer
-- `src/evaluate.py`: greedy policy evaluation
-- `src/play_agent.py`: autoplay demo (terminal/pygame)
+- `src/games/game2048_engine.py`: deterministic 2048 rules
+- `src/games/env2048.py`: RL wrapper + state encoding + reward shaping
+- `src/train.py`: unified YAML-driven trainer (uses `src/generic_dqn_train.py` for DQN)
+- `src/eval.py`: greedy policy evaluation
+- `src/play.py`: unified autoplay demo (terminal/pygame)
 
 ### Why 2048 is a good teaching example
 - small action space (`4` actions)
@@ -52,12 +76,12 @@ Core reusable files:
 ### 2048 commands
 Train:
 ```bash
-python -m src.train_dqn --episodes 3000 --eval-every 50 --eval-episodes 50 --save-dir models/2048
+python -m src.train --env 2048 --episodes 3000 --eval-every 50 --eval-episodes 50 --save-dir models/2048
 ```
 
 Evaluate:
 ```bash
-python -m src.evaluate --model models/2048/dqn_2048_best.json --episodes 200
+python -m src.eval --env 2048 --model models/2048/dqn_2048_best.json --episodes 200
 ```
 
 Play:
@@ -115,7 +139,7 @@ Feature mode was added because board-state + flat MLP often plateaus on `10x10` 
 
 #### Recommended Snake training (feature mode)
 ```bash
-python -m src.train_snake_dqn \
+python -m src.train --env snake \
   --state-mode features \
   --episodes 5000 \
   --curriculum-grid-sizes 6,8,10 \
@@ -129,7 +153,7 @@ python -m src.train_snake_dqn \
 
 Evaluate / play:
 ```bash
-python -m src.evaluate_snake --model models/snake_features/snake_dqn_best.json --episodes 200 --grid-size 10 --state-mode features
+python -m src.eval --env snake --model models/snake_features/snake_dqn_best.json --episodes 200 --grid-size 10 --state-mode features
 python -m src.play_snake_agent --model models/snake_features/snake_dqn_best.json --mode pygame --grid-size 10 --state-mode features --delay 0.06
 ```
 
@@ -143,8 +167,8 @@ Good for learning sparse-ish reward + reactive control on a small grid.
 
 Train / evaluate / play:
 ```bash
-python -m src.train_fruit_dqn --episodes 3000 --double-dqn --dueling --save-dir models/fruit
-python -m src.evaluate_fruit --model models/fruit/fruit_dqn_best.json --episodes 200
+python -m src.train --env fruit --episodes 3000 --double-dqn --dueling --save-dir models/fruit
+python -m src.eval --env fruit --model models/fruit/fruit_dqn_best.json --episodes 200
 python -m src.play_fruit_agent --model models/fruit/fruit_dqn_best.json --mode pygame --delay 0.08
 ```
 
@@ -154,8 +178,8 @@ A score-and-survival arcade setup with step limits in demos.
 
 Train / evaluate / play:
 ```bash
-python -m src.train_shooter_dqn --episodes 3000 --double-dqn --dueling --save-dir models/shooter
-python -m src.evaluate_shooter --model models/shooter/shooter_dqn_best.json --episodes 200
+python -m src.train --env shooter --episodes 3000 --double-dqn --dueling --save-dir models/shooter
+python -m src.eval --env shooter --model models/shooter/shooter_dqn_best.json --episodes 200
 python -m src.play_shooter_agent --model models/shooter/shooter_dqn_best.json --mode pygame --delay 0.08
 ```
 
@@ -169,7 +193,7 @@ This repo includes a stronger path: afterstate learning.
 
 #### DQN (placement action mode recommended)
 ```bash
-python -m src.train_tetris_dqn \
+python -m src.train --env tetris \
   --episodes 4000 \
   --height 10 --width 6 --max-steps 500 \
   --placement-actions \
@@ -179,7 +203,7 @@ python -m src.train_tetris_dqn \
 
 #### Afterstate (recommended for better Tetris learning)
 ```bash
-python -m src.train_tetris_afterstate \
+python -m src.train --env tetris_afterstate \
   --episodes 5000 \
   --height 10 --width 6 --max-steps 500 \
   --eval-every 100 --eval-episodes 100 \
@@ -188,7 +212,7 @@ python -m src.train_tetris_afterstate \
 
 Evaluate/play afterstate:
 ```bash
-python -m src.evaluate_tetris_afterstate --model models/tetris_afterstate/tetris_afterstate_best.json --episodes 200 --height 10 --width 6 --max-steps 500
+python -m src.eval --env tetris_afterstate --model models/tetris_afterstate/tetris_afterstate_best.json --episodes 200 --height 10 --width 6 --max-steps 500
 python -m src.play_tetris_afterstate_agent --model models/tetris_afterstate/tetris_afterstate_best.json --mode pygame --delay 0.08 --height 10 --width 6 --max-steps 500
 ```
 
@@ -206,13 +230,13 @@ Flappy is the best example in this repo of why environment calibration matters.
 
 #### Start with heuristic baseline (sanity check)
 ```bash
-python -m src.evaluate_flappy_heuristic --episodes 200 --env-preset standard
+python -m src.eval --env flappy_heuristic --episodes 200 --env-preset standard
 python -m src.play_flappy_heuristic --mode pygame --delay 0.06 --env-preset standard
 ```
 
 #### DQN Flappy
 ```bash
-python -m src.train_flappy_dqn \
+python -m src.train --env flappy \
   --episodes 5000 \
   --eval-every 100 --eval-episodes 100 \
   --double-dqn --dueling \
@@ -221,14 +245,14 @@ python -m src.train_flappy_dqn \
 ```
 
 ```bash
-python -m src.evaluate_flappy --model models/flappy_standard/flappy_dqn_best.json --episodes 200 --env-preset standard
+python -m src.eval --env flappy --model models/flappy_standard/flappy_dqn_best.json --episodes 200 --env-preset standard
 python -m src.play_flappy_agent --model models/flappy_standard/flappy_dqn_best.json --mode pygame --delay 0.06 --env-preset standard
 ```
 
 #### Tabular/discretized Q-learning Flappy
 ```bash
-python -m src.train_flappy_tabular --episodes 10000 --eval-every 200 --eval-episodes 100 --env-preset standard --save-dir models/flappy_tabular
-python -m src.evaluate_flappy_tabular --model models/flappy_tabular/flappy_tabular_best.json --episodes 200 --env-preset standard
+python -m src.train --env flappy_tabular --episodes 10000 --eval-every 200 --eval-episodes 100 --env-preset standard --save-dir models/flappy_tabular
+python -m src.eval --env flappy_tabular --model models/flappy_tabular/flappy_tabular_best.json --episodes 200 --env-preset standard
 python -m src.play_flappy_tabular --model models/flappy_tabular/flappy_tabular_best.json --mode pygame --delay 0.06 --env-preset standard
 ```
 
@@ -238,7 +262,7 @@ This prevents accidental comparisons across different physics/presets.
 
 Use mismatch override only when doing explicit transfer tests:
 ```bash
-python -m src.evaluate_flappy --model models/flappy_standard/flappy_dqn_best.json --episodes 50 --env-preset hard --allow-env-mismatch --print-model-env
+python -m src.eval --env flappy --model models/flappy_standard/flappy_dqn_best.json --episodes 50 --env-preset hard --allow-env-mismatch --print-model-env
 ```
 
 ### 6.6 Breakout
@@ -247,8 +271,8 @@ Breakout is a good next-step arcade control task after Flappy/Pong because it ha
 
 Train / evaluate / play:
 ```bash
-python -m src.train_breakout_dqn --episodes 3000 --eval-every 50 --eval-episodes 50 --double-dqn --dueling --save-dir models/breakout
-python -m src.evaluate_breakout --model models/breakout/breakout_dqn_best.json --episodes 200
+python -m src.train --env breakout --episodes 3000 --eval-every 50 --eval-episodes 50 --double-dqn --dueling --save-dir models/breakout
+python -m src.eval --env breakout --model models/breakout/breakout_dqn_best.json --episodes 200
 python -m src.play_breakout_agent --model models/breakout/breakout_dqn_best.json --mode pygame --delay 0.06
 ```
 
@@ -258,8 +282,8 @@ Pong is a strong demonstration task for tracking and control with shaped rewards
 
 Train / evaluate / play:
 ```bash
-python -m src.train_pong_dqn --episodes 3000 --eval-every 50 --eval-episodes 50 --double-dqn --dueling --save-dir models/pong
-python -m src.evaluate_pong --model models/pong/pong_dqn_best.json --episodes 200
+python -m src.train --env pong --episodes 3000 --eval-every 50 --eval-episodes 50 --double-dqn --dueling --save-dir models/pong
+python -m src.eval --env pong --model models/pong/pong_dqn_best.json --episodes 200
 python -m src.play_pong_agent --model models/pong/pong_dqn_best.json --mode pygame --delay 0.06
 ```
 
@@ -274,8 +298,8 @@ The implementation uses legal-action masking in target bootstrapping and can ani
 
 Train / evaluate:
 ```bash
-python -m src.train_match3_dqn --episodes 4000 --eval-every 50 --eval-episodes 50 --double-dqn --dueling --save-dir models/match3
-python -m src.evaluate_match3 --model models/match3/match3_dqn_best.json --episodes 200
+python -m src.train --env match3 --episodes 4000 --eval-every 50 --eval-episodes 50 --double-dqn --dueling --save-dir models/match3
+python -m src.eval --env match3 --model models/match3/match3_dqn_best.json --episodes 200
 ```
 
 Play with visible move and cascade timing:
@@ -296,9 +320,9 @@ The generic dispatcher supports these DQN games:
 
 Example:
 ```bash
-python -m src.train_game pong --episodes 3000 --double-dqn --dueling --save-dir models/pong_generic
-python -m src.evaluate_game pong --model models/pong_generic/pong_dqn_best.json --episodes 200
-python -m src.play_game pong --model models/pong_generic/pong_dqn_best.json --mode pygame --delay 0.06
+python -m src.train pong --episodes 3000 --double-dqn --dueling --save-dir models/pong_generic
+python -m src.eval --env pong --model models/pong_generic/pong_dqn_best.json --episodes 200
+python -m src.play --env pong --config sample_configs/pong.yaml
 ```
 
 ## 7. How to Read Training Logs (Across Games)
@@ -345,7 +369,7 @@ Use visualization/debug hooks:
 
 If you want to understand the codebase efficiently:
 
-1. Start with 2048 (`src/game_engine.py`, `src/env.py`, `src/train_dqn.py`)
+1. Start with 2048 (`src/games/game2048_engine.py`, `src/games/env2048.py`, `src/train.py`)
 2. Read `src/network.py` and `src/replay_buffer.py`
 3. Inspect a masked-action game (Snake or Match-3)
 4. Compare Flappy DQN vs tabular + heuristic (env design lesson)
@@ -370,22 +394,22 @@ python -m unittest discover -s tests -v
 
 2048:
 ```bash
-python -m src.train_dqn --episodes 3000 --eval-every 50 --eval-episodes 50 --save-dir models/2048
-python -m src.evaluate --model models/2048/dqn_2048_best.json --episodes 200
+python -m src.train --env 2048 --episodes 3000 --eval-every 50 --eval-episodes 50 --save-dir models/2048
+python -m src.eval --env 2048 --model models/2048/dqn_2048_best.json --episodes 200
 python -m src.play_agent --model models/2048/dqn_2048_best.json --mode pygame --delay 0.08
 ```
 
 Snake (feature mode):
 ```bash
-python -m src.train_snake_dqn --state-mode features --episodes 5000 --curriculum-grid-sizes 6,8,10 --double-dqn --dueling --save-dir models/snake_features
-python -m src.evaluate_snake --model models/snake_features/snake_dqn_best.json --episodes 200 --grid-size 10 --state-mode features
+python -m src.train --env snake --state-mode features --episodes 5000 --curriculum-grid-sizes 6,8,10 --double-dqn --dueling --save-dir models/snake_features
+python -m src.eval --env snake --model models/snake_features/snake_dqn_best.json --episodes 200 --grid-size 10 --state-mode features
 python -m src.play_snake_agent --model models/snake_features/snake_dqn_best.json --mode pygame --grid-size 10 --state-mode features --delay 0.06
 ```
 
 Flappy (DQN):
 ```bash
-python -m src.train_flappy_dqn --episodes 5000 --double-dqn --dueling --env-preset standard --save-dir models/flappy_standard
-python -m src.evaluate_flappy --model models/flappy_standard/flappy_dqn_best.json --episodes 200 --env-preset standard
+python -m src.train --env flappy --episodes 5000 --double-dqn --dueling --env-preset standard --save-dir models/flappy_standard
+python -m src.eval --env flappy --model models/flappy_standard/flappy_dqn_best.json --episodes 200 --env-preset standard
 python -m src.play_flappy_agent --model models/flappy_standard/flappy_dqn_best.json --mode pygame --delay 0.06 --env-preset standard
 ```
 

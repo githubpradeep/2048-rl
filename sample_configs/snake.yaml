@@ -1,0 +1,27 @@
+env: snake
+common:
+  seed: 42
+train:
+  state-mode: features
+  episodes: 5000
+  curriculum-grid-sizes: "6,8,10"
+  grid-size: 10
+  double-dqn: true
+  dueling: true
+  hidden-sizes: "128,128"
+  lr: 0.0003
+  eps-decay-steps: 40000
+  eval-every: 50
+  eval-episodes: 50
+  save-dir: models/snake_features
+  max-steps: 1200
+eval:
+  model: models/snake_features/snake_dqn_best.json
+  episodes: 200
+  grid-size: 10
+  state-mode: features
+
+play:
+  model: models/snake_features/snake_dqn_best.json
+  mode: pygame
+  delay: 0.06

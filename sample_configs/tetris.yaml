@@ -1,0 +1,26 @@
+env: tetris
+common:
+  seed: 42
+train:
+  episodes: 4000
+  height: 10
+  width: 6
+  max-steps: 500
+  placement-actions: true
+  double-dqn: true
+  dueling: true
+  eval-every: 50
+  eval-episodes: 50
+  save-dir: models/tetris_placement_ddqn
+eval:
+  model: models/tetris_placement_ddqn/tetris_dqn_best.json
+  episodes: 200
+  height: 10
+  width: 6
+  max-steps: 500
+  placement-actions: true
+
+play:
+  model: models/tetris_placement_ddqn/tetris_dqn_best.json
+  mode: pygame
+  delay: 0.06
