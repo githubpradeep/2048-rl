@@ -1,336 +1,395 @@
-# 2048 RL From Scratch: Complete Tutorial
+# RL Arcade From Scratch: 2048 + Multi-Game Tutorial
 
-This tutorial explains how this project builds a full 2048 reinforcement learning pipeline from scratch.
+This tutorial explains the project as a reusable reinforcement learning framework built from scratch in Python/NumPy.
 
-You will learn:
-- how 2048 mechanics are implemented
-- how we turn the game into an RL environment
-- how DQN works in this codebase
-- how replay buffer, target network, and epsilon-greedy exploration fit together
-- how to train, evaluate, debug, and visualize the agent
+It starts with the original 2048 pipeline, then shows how the same ideas are applied across Snake, Tetris, Flappy Bird, Breakout, Pong, Match-3, and other games in this repo.
 
 This project does **not** use `gymnasium` or `stable-baselines3`.
 
-## 1. What We Are Building
+## 1. What This Repo Actually Teaches
 
-Goal: train an agent that plays 2048 automatically.
+This codebase is useful because it combines three things in one place:
+- correct game logic (pure engines)
+- RL environment wrappers (custom API)
+- learning systems (DQN, DDQN+dueling, tabular Q-learning, afterstate learning)
 
-Pipeline:
-1. Pure 2048 game engine (deterministic, testable)
-2. Custom environment API (`reset`, `step`, `get_state`)
-3. DQN agent implemented from scratch
-4. Evaluation metrics and model checkpointing
-5. Autoplay visualization (terminal + pygame)
+You can study both:
+- RL algorithm mechanics
+- environment design/debugging (which matters just as much)
 
-Key files:
-- `src/game_engine.py`
-- `src/env.py`
-- `src/replay_buffer.py`
-- `src/network.py`
-- `src/train_dqn.py`
-- `src/eval_utils.py`
-- `src/evaluate.py`
-- `src/play_agent.py`
+## 2. Shared Architecture (Across Games)
 
-## 2. Setup
+Most games in this repo follow the same pattern:
 
-```bash
-cd /Users/pradeep.borado/misc/2048-rl
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-```
+1. Pure game engine (`src/games/...` or `src/game_engine.py`)
+2. RL env wrapper (`reset`, `step`, `get_state`, `legal_actions`)
+3. Trainer script (`src/train_*`)
+4. Evaluator (`src/evaluate_*`)
+5. Autoplay demo (`src/play_*`, terminal + pygame)
 
-Run tests first:
+Core reusable files:
+- `src/network.py`: NumPy MLP + manual backprop + Adam
+- `src/replay_buffer.py`: replay storage (supports legal-action masks)
+- `src/train_game.py`, `src/evaluate_game.py`, `src/play_game.py`: generic DQN dispatchers
 
-```bash
-python -m unittest discover -s tests -v
-```
+## 3. The 2048 Baseline (Original Project)
 
-## 3. 2048 Engine Design (`src/game_engine.py`)
+2048 remains the cleanest place to learn the basic DQN flow in this repo.
 
-The game engine is deliberately independent of RL.
+### 2048 pipeline
+- `src/game_engine.py`: deterministic 2048 rules
+- `src/env.py`: RL wrapper + state encoding + reward shaping
+- `src/train_dqn.py`: DQN trainer
+- `src/evaluate.py`: greedy policy evaluation
+- `src/play_agent.py`: autoplay demo (terminal/pygame)
 
-Responsibilities:
-- board state (`4x4` integer grid)
-- tile spawn (`2` with 90%, `4` with 10%)
-- movement logic (`up/down/left/right`)
-- merge rules (one merge per pair per move)
-- score accumulation
-- terminal check (`can_move`)
-- legal action detection (`legal_actions`)
+### Why 2048 is a good teaching example
+- small action space (`4` actions)
+- deterministic transitions (except tile spawn RNG)
+- easy to inspect board states
+- reward mostly tied to merges
 
-### Merge correctness
-
-Important rule in 2048:
-- `[2,2,2,0] -> [4,2,0,0]`
-- not `[8,0,0,0]`
-
-The implementation uses a `compress_and_merge` flow:
-1. remove zeros
-2. merge equal adjacent values once
-3. pad with zeros
-
-### Why pure logic class first?
-
-Because you can test it in isolation.
-Any RL instability is easier to diagnose when game rules are guaranteed correct.
-
-## 4. Environment Wrapper (`src/env.py`)
-
-`Game2048Env` wraps the engine with RL-friendly API:
-- `reset(seed=None) -> state`
-- `step(action) -> next_state, reward, done, info`
-- `get_state() -> encoded flat vector`
-
-### State encoding
-
-Raw board values are powers of two and vary a lot.
-So we encode non-zero cells with:
-
-`log2(tile_value) / 16`
-
-This keeps values bounded and easier for the network.
-
-### Reward shaping
-
-Current reward components:
-- `+gain` from merges (main signal)
-- `invalid_move_penalty` when an action does not change board
-- terminal bonus/penalty based on reaching target tile
-
-### Important regression fix
-
-Two key policy-quality fixes are now built in:
-1. `max_invalid_streak` is disabled by default (`None`) to preserve normal gameplay flow.
-2. Action selection in train/eval/play masks illegal moves, so the policy does not waste turns on invalid actions.
-
-## 5. Replay Buffer (`src/replay_buffer.py`)
-
-Stores transitions:
-- `state`
-- `action`
-- `reward`
-- `next_state`
-- `done`
-
-DQN uses random mini-batches from this memory.
-
-Why this matters:
-- breaks temporal correlation
-- improves sample efficiency
-- stabilizes training compared to online single-step updates
-
-## 6. Q-Network and Optimizer (`src/network.py`)
-
-`MLPQNetwork`:
-- fully-connected MLP
-- ReLU hidden layers
-- linear output layer with one Q-value per action (`4` actions)
-
-`AdamOptimizer`:
-- custom Adam implementation for parameter updates
-
-Training step (`train_batch`):
-1. forward pass for batch
-2. gather predicted Q for selected actions
-3. TD error: `Q(s,a) - target`
-4. MSE loss: `0.5 * mean(td_error^2)`
-5. manual backprop through layers
-6. Adam update
-
-## 7. DQN Training Loop (`src/train_dqn.py`)
-
-Core algorithm each environment step:
-1. choose action (epsilon-greedy, legal-action masked)
-2. step env, receive transition
-3. push transition to replay buffer
-4. if warmup done and on train cadence: sample batch and optimize
-5. periodically copy online network to target network
-
-### DQN target formula
-
-For sampled transition `(s,a,r,s',done)`:
-
-`target = r + gamma * (1 - done) * max_a' Q_target(s', a')`
-
-Then minimize:
-
-`(Q_online(s,a) - target)^2`
-
-### Why target network?
-
-It reduces moving-target instability by keeping bootstrap targets temporarily fixed.
-
-## 8. Evaluation (`src/evaluate.py`, `src/eval_utils.py`)
-
-Evaluation uses greedy policy (epsilon = 0), with legal-action masking.
-
-Reported metrics:
-- average score
-- median score
-- average episode steps
-- max tile distribution
-- reach rates for `>=512`, `>=1024`, `>=2048`
-
-Run:
-
-```bash
-python -m src.evaluate --model models/dqn_2048_best.json --episodes 200
-```
-
-## 9. Autoplay and Visualization (`src/play_agent.py`)
-
-Two modes:
-
-Terminal:
-```bash
-python -m src.play_agent --model models/dqn_2048_best.json --mode terminal --delay 0.1
-```
-
-Pygame:
-```bash
-python -m src.play_agent --model models/dqn_2048_best.json --mode pygame --delay 0.08
-```
-
-Useful debug mode:
-```bash
-python -m src.play_agent --model models/dqn_2048_best.json --mode terminal --debug --delay 0.3
-```
-
-Debug prints per move:
-- board before action
-- board after action
-- whether move was valid
-- merge gain
-
-## 10. End-to-End Workflow
-
-### Step A: Train
-
-```bash
-python -m src.train_dqn --episodes 3000 --eval-every 50 --eval-episodes 50 --save-dir models
-```
-
-### Step B: Evaluate best checkpoint
-
-```bash
-python -m src.evaluate --model models/dqn_2048_best.json --episodes 300
-```
-
-### Step C: Showcase agent
-
-```bash
-python -m src.play_agent --model models/dqn_2048_best.json --mode pygame --delay 0.08
-```
-
-## 11. How to Read Training Logs Correctly
-
-A common confusion:
-- high per-episode training score does **not** necessarily mean learned policy is good.
-
-Why:
-- early episodes may be mostly random exploration
-- replay and warmup delay actual learning
-- noisy reward can look temporarily strong
-
-Trust evaluation metrics on fixed episodes/checkpoints.
-
-## 12. Common Issues and Fixes
-
-### Issue: Training looks stuck
-
-Check:
-- `warmup-steps` may delay learning
-- model might still be collecting replay data
-
-Try:
-- lower warmup for experiments (not final runs)
-- ensure loss is non-zero after warmup
-
-### Issue: Poor scores, many invalid moves
-
-Fix:
-- ensure legal-action masking is active (already implemented)
-- keep invalid move penalties reasonable
-
-### Issue: `final` model weaker than expected
-
-Use `best` checkpoint for deployment:
-- `models/dqn_2048_best.json`
-
-## 13. Hyperparameter Tuning Guide
-
-Good knobs to tune first:
-- `--lr` (`1e-3` to `3e-4`)
-- `--batch-size` (`64`, `128`, `256`)
-- `--target-update` (`500` to `2000`)
-- `--eps-decay-steps` (slower decay often helps)
-- `--hidden-sizes` (e.g. `128,128` or `256,256`)
-
-Example:
-
-```bash
-python -m src.train_dqn \
-  --episodes 5000 \
-  --batch-size 128 \
-  --buffer-size 100000 \
-  --warmup-steps 5000 \
-  --target-update 1000 \
-  --lr 0.0007 \
-  --eps-decay-steps 500000 \
-  --hidden-sizes 256,256 \
-  --eval-every 50 \
-  --eval-episodes 50
-```
-
-## 14. Suggested Study Path for Learners
-
-If you are teaching or self-learning, use this order:
-1. Read and run tests for `src/game_engine.py`
-2. Step through `src/env.py` rewards and state encoding
-3. Understand replay buffer sampling in `src/replay_buffer.py`
-4. Trace forward/backward in `src/network.py`
-5. Follow training loop in `src/train_dqn.py`
-6. Validate behavior with `src/evaluate.py`
-7. Visualize policy with `src/play_agent.py`
-
-## 15. Future Extensions
-
-Natural next improvements:
-- Double DQN
-- Dueling network heads
-- Prioritized replay
-- Richer board features (empty count, monotonicity, smoothness)
-- Better checkpoint metadata and plotting
-
-## 16. Quick Command Cheat Sheet
-
-Install:
-```bash
-pip install -r requirements.txt
-```
-
-Test:
-```bash
-python -m unittest discover -s tests -v
-```
-
+### 2048 commands
 Train:
 ```bash
-python -m src.train_dqn --episodes 3000 --eval-every 50 --eval-episodes 50
+python -m src.train_dqn --episodes 3000 --eval-every 50 --eval-episodes 50 --save-dir models/2048
 ```
 
 Evaluate:
 ```bash
-python -m src.evaluate --model models/dqn_2048_best.json --episodes 200
+python -m src.evaluate --model models/2048/dqn_2048_best.json --episodes 200
 ```
 
-Play (pygame):
+Play:
 ```bash
-python -m src.play_agent --model models/dqn_2048_best.json --mode pygame --delay 0.08
+python -m src.play_agent --model models/2048/dqn_2048_best.json --mode pygame --delay 0.08
 ```
 
----
+## 4. DQN in This Codebase (What is Shared)
 
-If you want, the next tutorial chapter can be a line-by-line derivation of DQN updates directly from Bellman equations and how each term maps to the exact variables in `src/train_dqn.py`.
+The DQN trainer loops across games all use the same structure:
+
+1. epsilon-greedy action selection
+2. environment step
+3. store transition in replay buffer
+4. sample mini-batch after warmup
+5. compute TD targets with target network
+6. manual backprop through MLP
+7. periodic target network sync
+
+### Legal-action masking matters
+Many games in this repo have invalid actions at a given state (2048, Snake reverse move, Tetris placements, Match-3 swaps).
+
+The project now uses action masking in multiple places:
+- action selection (pick among legal actions)
+- some target computations (to avoid bootstrapping through illegal actions)
+
+This is a practical improvement, not a cosmetic one. It can materially change training quality.
+
+## 5. Environment Design Is Part of RL (Major Lesson)
+
+A repeated pattern in this project: when results are poor, the issue is often not just “network size” or “more episodes.”
+
+### Examples from this repo
+- **Flappy Bird**: physics scaling and pipe generation continuity mattered more than just increasing MLP width.
+- **Snake**: board-input flat MLP plateaued; feature-state environment improved learning behavior without changing gameplay.
+- **Tetris**: afterstate/value-learning formulation worked better than naive action-value DQN for stronger play.
+
+This is the core engineering lesson: 
+- game correctness
+- state representation
+- reward design
+- action space design
+are all part of the RL system.
+
+## 6. Game-by-Game Guide (Current)
+
+### 6.1 Snake
+
+#### What changed and why
+Snake now supports two state modes:
+- `board` (3-channel flattened board tensor)
+- `features` (engineered state features, recommended)
+
+Feature mode was added because board-state + flat MLP often plateaus on `10x10` Snake.
+
+#### Recommended Snake training (feature mode)
+```bash
+python -m src.train_snake_dqn \
+  --state-mode features \
+  --episodes 5000 \
+  --curriculum-grid-sizes 6,8,10 \
+  --double-dqn --dueling \
+  --hidden-sizes 128,128 \
+  --lr 3e-4 \
+  --eps-decay-steps 40000 \
+  --eval-every 50 --eval-episodes 50 \
+  --save-dir models/snake_features
+```
+
+Evaluate / play:
+```bash
+python -m src.evaluate_snake --model models/snake_features/snake_dqn_best.json --episodes 200 --grid-size 10 --state-mode features
+python -m src.play_snake_agent --model models/snake_features/snake_dqn_best.json --mode pygame --grid-size 10 --state-mode features --delay 0.06
+```
+
+Important:
+- `board` and `features` models are not compatible.
+- Keep `--state-mode` consistent in train/eval/play.
+
+### 6.2 Fruit Cutter
+
+Good for learning sparse-ish reward + reactive control on a small grid.
+
+Train / evaluate / play:
+```bash
+python -m src.train_fruit_dqn --episodes 3000 --double-dqn --dueling --save-dir models/fruit
+python -m src.evaluate_fruit --model models/fruit/fruit_dqn_best.json --episodes 200
+python -m src.play_fruit_agent --model models/fruit/fruit_dqn_best.json --mode pygame --delay 0.08
+```
+
+### 6.3 Shooter
+
+A score-and-survival arcade setup with step limits in demos.
+
+Train / evaluate / play:
+```bash
+python -m src.train_shooter_dqn --episodes 3000 --double-dqn --dueling --save-dir models/shooter
+python -m src.evaluate_shooter --model models/shooter/shooter_dqn_best.json --episodes 200
+python -m src.play_shooter_agent --model models/shooter/shooter_dqn_best.json --mode pygame --delay 0.08
+```
+
+Note:
+- A play run can end because it hit `--max-steps`, even if lives remain.
+
+### 6.4 Tetris (DQN + Afterstate)
+
+Tetris is much harder for standard DQN in primitive action space.
+This repo includes a stronger path: afterstate learning.
+
+#### DQN (placement action mode recommended)
+```bash
+python -m src.train_tetris_dqn \
+  --episodes 4000 \
+  --height 10 --width 6 --max-steps 500 \
+  --placement-actions \
+  --double-dqn --dueling \
+  --save-dir models/tetris_placement_ddqn
+```
+
+#### Afterstate (recommended for better Tetris learning)
+```bash
+python -m src.train_tetris_afterstate \
+  --episodes 5000 \
+  --height 10 --width 6 --max-steps 500 \
+  --eval-every 100 --eval-episodes 100 \
+  --save-dir models/tetris_afterstate
+```
+
+Evaluate/play afterstate:
+```bash
+python -m src.evaluate_tetris_afterstate --model models/tetris_afterstate/tetris_afterstate_best.json --episodes 200 --height 10 --width 6 --max-steps 500
+python -m src.play_tetris_afterstate_agent --model models/tetris_afterstate/tetris_afterstate_best.json --mode pygame --delay 0.08 --height 10 --width 6 --max-steps 500
+```
+
+### 6.5 Flappy Bird (Heuristic + DQN + Tabular)
+
+Flappy is the best example in this repo of why environment calibration matters.
+
+#### Key env fixes already in this repo
+- board-scaled physics
+- floor/ground region
+- initial pipe offset/runway
+- pipe gap continuity (`max_gap_delta`)
+- presets (`easy`, `standard`, `hard`)
+- checkpoint env metadata + strict mismatch validation in eval/play
+
+#### Start with heuristic baseline (sanity check)
+```bash
+python -m src.evaluate_flappy_heuristic --episodes 200 --env-preset standard
+python -m src.play_flappy_heuristic --mode pygame --delay 0.06 --env-preset standard
+```
+
+#### DQN Flappy
+```bash
+python -m src.train_flappy_dqn \
+  --episodes 5000 \
+  --eval-every 100 --eval-episodes 100 \
+  --double-dqn --dueling \
+  --env-preset standard \
+  --save-dir models/flappy_standard
+```
+
+```bash
+python -m src.evaluate_flappy --model models/flappy_standard/flappy_dqn_best.json --episodes 200 --env-preset standard
+python -m src.play_flappy_agent --model models/flappy_standard/flappy_dqn_best.json --mode pygame --delay 0.06 --env-preset standard
+```
+
+#### Tabular/discretized Q-learning Flappy
+```bash
+python -m src.train_flappy_tabular --episodes 10000 --eval-every 200 --eval-episodes 100 --env-preset standard --save-dir models/flappy_tabular
+python -m src.evaluate_flappy_tabular --model models/flappy_tabular/flappy_tabular_best.json --episodes 200 --env-preset standard
+python -m src.play_flappy_tabular --model models/flappy_tabular/flappy_tabular_best.json --mode pygame --delay 0.06 --env-preset standard
+```
+
+#### Flappy model/env mismatch checks
+Flappy eval/play validates the saved checkpoint env metadata by default.
+This prevents accidental comparisons across different physics/presets.
+
+Use mismatch override only when doing explicit transfer tests:
+```bash
+python -m src.evaluate_flappy --model models/flappy_standard/flappy_dqn_best.json --episodes 50 --env-preset hard --allow-env-mismatch --print-model-env
+```
+
+### 6.6 Breakout
+
+Breakout is a good next-step arcade control task after Flappy/Pong because it has denser reward than Flappy and clearer objective progress.
+
+Train / evaluate / play:
+```bash
+python -m src.train_breakout_dqn --episodes 3000 --eval-every 50 --eval-episodes 50 --double-dqn --dueling --save-dir models/breakout
+python -m src.evaluate_breakout --model models/breakout/breakout_dqn_best.json --episodes 200
+python -m src.play_breakout_agent --model models/breakout/breakout_dqn_best.json --mode pygame --delay 0.06
+```
+
+### 6.7 Pong
+
+Pong is a strong demonstration task for tracking and control with shaped rewards.
+
+Train / evaluate / play:
+```bash
+python -m src.train_pong_dqn --episodes 3000 --eval-every 50 --eval-episodes 50 --double-dqn --dueling --save-dir models/pong
+python -m src.evaluate_pong --model models/pong/pong_dqn_best.json --episodes 200
+python -m src.play_pong_agent --model models/pong/pong_dqn_best.json --mode pygame --delay 0.06
+```
+
+### 6.8 Match-3
+
+Match-3 adds a different RL regime:
+- combinatorial action space
+- legal swap masking
+- cascades / combo rewards
+
+The implementation uses legal-action masking in target bootstrapping and can animate each move in pygame.
+
+Train / evaluate:
+```bash
+python -m src.train_match3_dqn --episodes 4000 --eval-every 50 --eval-episodes 50 --double-dqn --dueling --save-dir models/match3
+python -m src.evaluate_match3 --model models/match3/match3_dqn_best.json --episodes 200
+```
+
+Play with visible move and cascade timing:
+```bash
+python -m src.play_match3_agent \
+  --model models/match3/match3_dqn_best.json \
+  --mode pygame \
+  --delay 0.12 \
+  --select-delay 0.25 \
+  --move-delay 0.25 \
+  --clear-delay 0.18
+```
+
+### 6.9 2048 / Fruit / Shooter / Tetris / Flappy via Generic DQN Dispatcher
+
+The generic dispatcher supports these DQN games:
+- `2048`, `snake`, `fruit`, `shooter`, `tetris`, `flappy`, `breakout`, `pong`, `match3`
+
+Example:
+```bash
+python -m src.train_game pong --episodes 3000 --double-dqn --dueling --save-dir models/pong_generic
+python -m src.evaluate_game pong --model models/pong_generic/pong_dqn_best.json --episodes 200
+python -m src.play_game pong --model models/pong_generic/pong_dqn_best.json --mode pygame --delay 0.06
+```
+
+## 7. How to Read Training Logs (Across Games)
+
+Do not judge a model only from per-episode training logs.
+
+Why:
+- epsilon exploration can still be high
+- replay warmup delays learning updates
+- training reward can be noisy or shaped differently than eval score
+- one good autoplay run can be luck
+
+Prefer:
+- evaluation metrics on fixed seeds / multiple episodes
+- `*_best.json` checkpoints
+- median + average, not just max episode score
+
+## 8. Common Failure Modes (and What to Check)
+
+### 8.1 “Training longer did not help”
+Common causes:
+- environment too hard / poorly calibrated
+- bad state representation (not enough useful information)
+- plateau in algorithm dynamics (uniform replay, sparse rewards)
+
+Examples in this repo:
+- Flappy needed env calibration and presets.
+- Snake benefits from feature-state mode.
+
+### 8.2 “Model plays badly but training looked OK”
+Check:
+- are you using `*_best.json` or `*_final.json`?
+- is eval/play using the same env config as training?
+- for Snake, did you keep `--state-mode` consistent?
+- for Flappy, did env mismatch validation fail / get overridden?
+
+### 8.3 “Game looks wrong in pygame”
+Use visualization/debug hooks:
+- Match-3: staged animation delays (`--select-delay`, `--move-delay`, `--clear-delay`)
+- 2048 terminal debug mode (`--debug`)
+- Flappy heuristic baseline for env sanity checks
+
+## 9. Suggested Study Path (Practical)
+
+If you want to understand the codebase efficiently:
+
+1. Start with 2048 (`src/game_engine.py`, `src/env.py`, `src/train_dqn.py`)
+2. Read `src/network.py` and `src/replay_buffer.py`
+3. Inspect a masked-action game (Snake or Match-3)
+4. Compare Flappy DQN vs tabular + heuristic (env design lesson)
+5. Study Tetris afterstate trainer (alternative formulation)
+
+## 10. Recommended Next Improvements (Project-Wide)
+
+High-impact shared upgrades:
+- Prioritized Experience Replay (PER)
+- n-step returns
+- metadata consistency checks for more games (like Flappy)
+- benchmark harnesses (heuristic vs tabular vs DQN where applicable)
+- CNN support for grid-based board inputs (Snake/Match-3 variants)
+
+## 11. Quick Command Index (Cheat Sheet)
+
+Install / tests:
+```bash
+pip install -r requirements.txt
+python -m unittest discover -s tests -v
+```
+
+2048:
+```bash
+python -m src.train_dqn --episodes 3000 --eval-every 50 --eval-episodes 50 --save-dir models/2048
+python -m src.evaluate --model models/2048/dqn_2048_best.json --episodes 200
+python -m src.play_agent --model models/2048/dqn_2048_best.json --mode pygame --delay 0.08
+```
+
+Snake (feature mode):
+```bash
+python -m src.train_snake_dqn --state-mode features --episodes 5000 --curriculum-grid-sizes 6,8,10 --double-dqn --dueling --save-dir models/snake_features
+python -m src.evaluate_snake --model models/snake_features/snake_dqn_best.json --episodes 200 --grid-size 10 --state-mode features
+python -m src.play_snake_agent --model models/snake_features/snake_dqn_best.json --mode pygame --grid-size 10 --state-mode features --delay 0.06
+```
+
+Flappy (DQN):
+```bash
+python -m src.train_flappy_dqn --episodes 5000 --double-dqn --dueling --env-preset standard --save-dir models/flappy_standard
+python -m src.evaluate_flappy --model models/flappy_standard/flappy_dqn_best.json --episodes 200 --env-preset standard
+python -m src.play_flappy_agent --model models/flappy_standard/flappy_dqn_best.json --mode pygame --delay 0.06 --env-preset standard
+```
+
+Match-3 (animated autoplay):
+```bash
+python -m src.play_match3_agent --model models/match3/match3_dqn_best.json --mode pygame --delay 0.12 --select-delay 0.25 --move-delay 0.25 --clear-delay 0.18
+```
