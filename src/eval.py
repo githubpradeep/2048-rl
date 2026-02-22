@@ -15,6 +15,7 @@ SUPPORTED_ENVS = (
     "flappy_tabular",
     "fruit",
     "match3",
+    "pacman",
     "pong",
     "shooter",
     "snake",
@@ -493,6 +494,48 @@ def _eval_match3(params: dict[str, Any]) -> None:
     print(f"Invalid rate: {stats.invalid_rate:.4f}")
 
 
+def _eval_pacman(params: dict[str, Any]) -> None:
+    from .evals.pacman_eval_utils import evaluate_pacman_policy
+    from .games.pacman_lite import PacmanLiteConfig, PacmanLiteEnv
+    from .network import MLPQNetwork
+
+    episodes = int(_cfg(params, "episodes", 100))
+    seed = int(_cfg(params, "seed", 123))
+    max_steps = int(_cfg(params, "max_steps", 500))
+    grid_size = int(_cfg(params, "grid_size", 11))
+    state_grid_size = int(_cfg(params, "state_grid_size", 0)) or grid_size
+    model = str(params["model"])
+
+    env = PacmanLiteEnv(
+        config=PacmanLiteConfig(
+            grid_size=grid_size,
+            num_ghosts=int(_cfg(params, "num_ghosts", 2)),
+            ghost_chase_prob=float(_cfg(params, "ghost_chase_prob", 0.75)),
+            pellet_reward=float(_cfg(params, "pellet_reward", 1.0)),
+            step_reward=float(_cfg(params, "step_reward", -0.02)),
+            ghost_collision_penalty=float(_cfg(params, "ghost_collision_penalty", -5.0)),
+            clear_bonus=float(_cfg(params, "clear_bonus", 8.0)),
+            max_steps=max_steps,
+            start_lives=int(_cfg(params, "start_lives", 3)),
+        ),
+        seed=seed,
+        state_grid_size=state_grid_size,
+    )
+    network = MLPQNetwork.load(model)
+    stats = evaluate_pacman_policy(env, network, episodes=episodes, seed_start=seed, max_steps=max_steps)
+
+    print("Pacman-lite Evaluation Results")
+    print("------------------------------")
+    print(f"Episodes: {episodes}")
+    print(f"Average score: {stats.avg_score:.3f}")
+    print(f"Median score: {stats.median_score:.3f}")
+    print(f"Average steps: {stats.avg_steps:.2f}")
+    print(f"Average lives left: {stats.avg_lives_left:.2f}")
+    print(f"Average pellets eaten: {stats.avg_pellets_eaten:.2f}")
+    print(f"Average collisions: {stats.avg_collisions:.2f}")
+    print(f"Clear rate: {100.0 * stats.clear_rate:.2f}%")
+
+
 _RUNNERS = {
     "2048": _eval_2048,
     "snake": _eval_snake,
@@ -506,6 +549,7 @@ _RUNNERS = {
     "breakout": _eval_breakout,
     "pong": _eval_pong,
     "match3": _eval_match3,
+    "pacman": _eval_pacman,
 }
 
 
