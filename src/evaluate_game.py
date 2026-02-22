@@ -8,6 +8,7 @@ import sys
 EVAL_MODULES = {
     "2048": "src.evaluate",
     "breakout": "src.evaluate_breakout",
+    "pong": "src.evaluate_pong",
     "snake": "src.evaluate_snake",
     "fruit": "src.evaluate_fruit",
     "flappy": "src.evaluate_flappy",

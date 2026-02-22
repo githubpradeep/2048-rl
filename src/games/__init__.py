@@ -3,6 +3,7 @@
 from .breakout import BreakoutConfig, BreakoutEnv, BreakoutGame
 from .fruit_cutter import FruitCutterConfig, FruitCutterEnv, FruitCutterGame
 from .flappy import FlappyConfig, FlappyEnv, FlappyGame
+from .pong import PongConfig, PongEnv, PongGame
 from .shooter import ShooterConfig, ShooterEnv, ShooterGame
 from .snake import SnakeConfig, SnakeEnv, SnakeGame
 from .tetris import TetrisConfig, TetrisEnv, TetrisGame, TetrisPlacementEnv
@@ -11,6 +12,9 @@ __all__ = [
     "BreakoutConfig",
     "BreakoutEnv",
     "BreakoutGame",
+    "PongConfig",
+    "PongEnv",
+    "PongGame",
     "SnakeConfig",
     "SnakeEnv",
     "SnakeGame",
