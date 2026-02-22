@@ -2,6 +2,13 @@ from __future__ import annotations
 
 import argparse
 
+from .flappy_env_config import (
+    add_env_mismatch_args,
+    add_flappy_preset_arg,
+    apply_flappy_preset,
+    build_flappy_config_from_args,
+    validate_model_env_or_raise,
+)
 from .flappy_eval_utils import evaluate_flappy_policy
 from .flappy_tabular import FlappyTabularQAgent
 from .games.flappy import FlappyConfig, FlappyEnv
@@ -26,27 +33,19 @@ def main() -> None:
     parser.add_argument("--pass-reward", type=float, default=100.0)
     parser.add_argument("--crash-penalty", type=float, default=-100.0)
     parser.add_argument("--max-steps", type=int, default=1000)
+    add_flappy_preset_arg(parser)
+    add_env_mismatch_args(parser)
     args = parser.parse_args()
+    preset_name = apply_flappy_preset(args)
 
-    env = FlappyEnv(
-        config=FlappyConfig(
-            width=args.width,
-            height=args.height,
-            gap_size=args.pipe_gap,
-            pipe_speed=args.pipe_speed,
-            pipe_spacing=args.pipe_spacing,
-            initial_pipe_offset=args.initial_pipe_offset,
-            floor_height=args.floor_height,
-            max_gap_delta=args.max_gap_delta,
-            gravity=args.gravity,
-            flap_velocity=args.flap_velocity,
-            step_reward=args.step_reward,
-            pass_reward=args.pass_reward,
-            crash_penalty=args.crash_penalty,
-            max_steps=args.max_steps,
-        ),
-        seed=args.seed,
+    config = build_flappy_config_from_args(args, include_rewards=True)
+    validate_model_env_or_raise(
+        args.model,
+        config,
+        allow_mismatch=bool(args.allow_env_mismatch),
+        print_model_env=bool(args.print_model_env),
     )
+    env = FlappyEnv(config=config, seed=args.seed)
     agent = FlappyTabularQAgent.load(args.model)
     stats = evaluate_flappy_policy(env, agent, episodes=args.episodes, seed_start=args.seed, max_steps=args.max_steps)
 
@@ -57,6 +56,7 @@ def main() -> None:
     print(f"Median score: {stats.median_score:.3f}")
     print(f"Average steps: {stats.avg_steps:.2f}")
     print(f"Average reward: {stats.avg_reward:.2f}")
+    print(f"Env preset: {preset_name or 'custom'}")
 
 
 if __name__ == "__main__":

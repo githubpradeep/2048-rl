@@ -4,6 +4,13 @@ import argparse
 import time
 from dataclasses import dataclass
 
+from .flappy_env_config import (
+    add_env_mismatch_args,
+    add_flappy_preset_arg,
+    apply_flappy_preset,
+    build_flappy_config_from_args,
+    validate_model_env_or_raise,
+)
 from .games.flappy import FlappyConfig, FlappyEnv, Pipe
 from .network import MLPQNetwork
 
@@ -183,24 +190,19 @@ def main() -> None:
     parser.add_argument("--max-steps", type=int, default=1000)
     parser.add_argument("--mode", choices=["terminal", "pygame"], default="terminal")
     parser.add_argument("--close-on-end", action="store_true")
+    add_flappy_preset_arg(parser)
+    add_env_mismatch_args(parser)
     args = parser.parse_args()
+    apply_flappy_preset(args)
 
-    env = FlappyEnv(
-        config=FlappyConfig(
-            width=args.width,
-            height=args.height,
-            gap_size=args.pipe_gap,
-            pipe_speed=args.pipe_speed,
-            pipe_spacing=args.pipe_spacing,
-            initial_pipe_offset=args.initial_pipe_offset,
-            floor_height=args.floor_height,
-            max_gap_delta=args.max_gap_delta,
-            gravity=args.gravity,
-            flap_velocity=args.flap_velocity,
-            max_steps=args.max_steps,
-        ),
-        seed=args.seed,
+    config = build_flappy_config_from_args(args, include_rewards=False)
+    validate_model_env_or_raise(
+        args.model,
+        config,
+        allow_mismatch=bool(args.allow_env_mismatch),
+        print_model_env=bool(args.print_model_env),
     )
+    env = FlappyEnv(config=config, seed=args.seed)
     network = MLPQNetwork.load(args.model)
 
     if args.mode == "pygame":

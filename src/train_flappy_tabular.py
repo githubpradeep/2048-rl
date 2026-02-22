@@ -5,6 +5,13 @@ from pathlib import Path
 
 import numpy as np
 
+from .flappy_env_config import (
+    add_flappy_preset_arg,
+    apply_flappy_preset,
+    build_flappy_config_from_args,
+    flappy_model_metadata,
+    write_model_metadata,
+)
 from .flappy_eval_utils import evaluate_flappy_policy
 from .flappy_tabular import FlappyDiscretizerConfig, FlappyStateDiscretizer, FlappyTabularQAgent
 from .games.flappy import FlappyConfig, FlappyEnv
@@ -75,25 +82,12 @@ def main() -> None:
     parser.add_argument("--eval-every", type=int, default=100)
     parser.add_argument("--eval-episodes", type=int, default=50)
     parser.add_argument("--save-dir", type=str, default="models/flappy_tabular")
+    add_flappy_preset_arg(parser)
     args = parser.parse_args()
+    preset_name = apply_flappy_preset(args)
 
     rng = np.random.default_rng(args.seed)
-    config = FlappyConfig(
-        width=args.width,
-        height=args.height,
-        gap_size=args.pipe_gap,
-        pipe_speed=args.pipe_speed,
-        pipe_spacing=args.pipe_spacing,
-        initial_pipe_offset=args.initial_pipe_offset,
-        floor_height=args.floor_height,
-        max_gap_delta=args.max_gap_delta,
-        gravity=args.gravity,
-        flap_velocity=args.flap_velocity,
-        step_reward=args.step_reward,
-        pass_reward=args.pass_reward,
-        crash_penalty=args.crash_penalty,
-        max_steps=args.max_steps,
-    )
+    config = build_flappy_config_from_args(args, include_rewards=True)
     env = FlappyEnv(config=config, seed=args.seed)
 
     discretizer = FlappyStateDiscretizer(
@@ -117,6 +111,7 @@ def main() -> None:
 
     print(
         "Flappy tabular training config | "
+        f"preset={preset_name or 'custom'} "
         f"bins(dx={args.dx_bins},dy={args.dy_bins},vel={args.vel_bins}) "
         f"alpha={args.alpha} gamma={args.gamma} reverse_sweep={args.reverse_sweep}"
     )
@@ -181,10 +176,12 @@ def main() -> None:
                 best_eval = stats.avg_score
                 best_path = save_dir / "flappy_tabular_best.json"
                 agent.save(best_path)
+                write_model_metadata(best_path, flappy_model_metadata(config, preset_name, algo="tabular_q"))
                 print(f"  saved new best checkpoint: {best_path}")
 
     final_path = save_dir / "flappy_tabular_final.json"
     agent.save(final_path)
+    write_model_metadata(final_path, flappy_model_metadata(config, preset_name, algo="tabular_q"))
     print(f"Training complete. Final model saved to: {final_path}")
 
 

@@ -2,21 +2,14 @@ from __future__ import annotations
 
 import argparse
 
-from .flappy_env_config import (
-    add_env_mismatch_args,
-    add_flappy_preset_arg,
-    apply_flappy_preset,
-    build_flappy_config_from_args,
-    validate_model_env_or_raise,
-)
+from .flappy_env_config import add_flappy_preset_arg, apply_flappy_preset, build_flappy_config_from_args
 from .flappy_eval_utils import evaluate_flappy_policy
-from .games.flappy import FlappyConfig, FlappyEnv
-from .network import MLPQNetwork
+from .flappy_heuristic import FlappyHeuristicPolicy
+from .games.flappy import FlappyEnv
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Evaluate trained DQN for Flappy Bird")
-    parser.add_argument("--model", type=str, required=True)
+    parser = argparse.ArgumentParser(description="Evaluate heuristic Flappy policy (env solvability baseline)")
     parser.add_argument("--episodes", type=int, default=100)
     parser.add_argument("--seed", type=int, default=123)
     parser.add_argument("--width", type=int, default=84)
@@ -30,24 +23,26 @@ def main() -> None:
     parser.add_argument("--gravity", type=float, default=0.18)
     parser.add_argument("--flap-velocity", type=float, default=-2.2)
     parser.add_argument("--max-steps", type=int, default=1000)
+    parser.add_argument("--bird-y-threshold", type=float, default=0.62)
+    parser.add_argument("--dy-flap-threshold", type=float, default=0.08)
+    parser.add_argument("--vel-flap-threshold", type=float, default=0.70)
+    parser.add_argument("--bottom-emergency-y", type=float, default=0.90)
     add_flappy_preset_arg(parser)
-    add_env_mismatch_args(parser)
     args = parser.parse_args()
     preset_name = apply_flappy_preset(args)
 
     config = build_flappy_config_from_args(args, include_rewards=False)
-    validate_model_env_or_raise(
-        args.model,
-        config,
-        allow_mismatch=bool(args.allow_env_mismatch),
-        print_model_env=bool(args.print_model_env),
-    )
     env = FlappyEnv(config=config, seed=args.seed)
-    network = MLPQNetwork.load(args.model)
-    stats = evaluate_flappy_policy(env, network, episodes=args.episodes, seed_start=args.seed, max_steps=args.max_steps)
+    policy = FlappyHeuristicPolicy(
+        bird_y_threshold=args.bird_y_threshold,
+        dy_flap_threshold=args.dy_flap_threshold,
+        vel_flap_threshold=args.vel_flap_threshold,
+        bottom_emergency_y=args.bottom_emergency_y,
+    )
+    stats = evaluate_flappy_policy(env, policy, episodes=args.episodes, seed_start=args.seed, max_steps=args.max_steps)
 
-    print("Flappy Evaluation Results")
-    print("-------------------------")
+    print("Flappy Heuristic Evaluation Results")
+    print("----------------------------------")
     print(f"Episodes: {args.episodes}")
     print(f"Average score: {stats.avg_score:.3f}")
     print(f"Median score: {stats.median_score:.3f}")
@@ -58,3 +53,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
