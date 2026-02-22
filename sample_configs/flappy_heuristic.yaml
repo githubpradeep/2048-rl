@@ -1,0 +1,10 @@
+env: flappy_heuristic
+common:
+  seed: 123
+eval:
+  episodes: 200
+  env-preset: standard
+
+play:
+  mode: pygame
+  delay: 0.06

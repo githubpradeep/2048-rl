@@ -1,0 +1,21 @@
+env: match3
+common:
+  seed: 42
+train:
+  episodes: 4000
+  eval-every: 50
+  eval-episodes: 50
+  double-dqn: true
+  dueling: true
+  save-dir: models/match3
+eval:
+  model: models/match3/match3_dqn_best.json
+  episodes: 200
+
+play:
+  model: models/match3/match3_dqn_best.json
+  mode: pygame
+  delay: 0.12
+  select-delay: 0.25
+  move-delay: 0.25
+  clear-delay: 0.18

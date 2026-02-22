@@ -1,0 +1,20 @@
+env: flappy
+common:
+  seed: 42
+train:
+  episodes: 5000
+  eval-every: 100
+  eval-episodes: 100
+  double-dqn: true
+  dueling: true
+  env-preset: standard
+  save-dir: models/flappy_standard
+eval:
+  model: models/flappy_standard/flappy_dqn_best.json
+  episodes: 200
+  env-preset: standard
+
+play:
+  model: models/flappy_standard/flappy_dqn_best.json
+  mode: pygame
+  delay: 0.06
