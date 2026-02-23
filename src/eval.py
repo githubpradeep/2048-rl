@@ -111,6 +111,7 @@ def _eval_2048(params: dict[str, Any]) -> None:
 
 def _eval_snake(params: dict[str, Any]) -> None:
     from .games.snake import SnakeConfig, SnakeEnv, SnakeFeatureEnv
+    from .model_env_metadata import validate_model_env_from_params_or_raise
     from .network import MLPQNetwork
     from .evals.snake_eval_utils import evaluate_snake_policy
 
@@ -125,6 +126,13 @@ def _eval_snake(params: dict[str, Any]) -> None:
         env = SnakeFeatureEnv(config=SnakeConfig(grid_size=grid_size), seed=seed)
     else:
         env = SnakeEnv(config=SnakeConfig(grid_size=grid_size), seed=seed, state_grid_size=state_grid_size)
+    validate_model_env_from_params_or_raise(
+        model,
+        "snake",
+        params,
+        allow_mismatch=bool(_cfg(params, "allow_env_mismatch", False)),
+        print_model_env=bool(_cfg(params, "print_model_env", False)),
+    )
     network = MLPQNetwork.load(model)
     stats = evaluate_snake_policy(env, network, episodes=episodes, seed_start=seed)
 
@@ -203,6 +211,7 @@ def _eval_shooter(params: dict[str, Any]) -> None:
 
 def _eval_tetris(params: dict[str, Any]) -> None:
     from .games.tetris import TetrisConfig, TetrisEnv, TetrisPlacementEnv
+    from .model_env_metadata import validate_model_env_from_params_or_raise
     from .network import MLPQNetwork
     from .evals.tetris_eval_utils import evaluate_tetris_policy
 
@@ -216,6 +225,13 @@ def _eval_tetris(params: dict[str, Any]) -> None:
 
     cfg = TetrisConfig(height=height, width=width, max_steps=max_steps)
     env = TetrisPlacementEnv(config=cfg, seed=seed) if placement_actions else TetrisEnv(config=cfg, seed=seed)
+    validate_model_env_from_params_or_raise(
+        model,
+        "tetris",
+        params,
+        allow_mismatch=bool(_cfg(params, "allow_env_mismatch", False)),
+        print_model_env=bool(_cfg(params, "print_model_env", False)),
+    )
     network = MLPQNetwork.load(model)
     stats = evaluate_tetris_policy(env, network, episodes=episodes, seed_start=seed, max_steps=max_steps)
 
@@ -459,6 +475,7 @@ def _eval_pong(params: dict[str, Any]) -> None:
 def _eval_match3(params: dict[str, Any]) -> None:
     from .games.match3 import Match3Config, Match3Env
     from .evals.match3_eval_utils import evaluate_match3_policy
+    from .model_env_metadata import validate_model_env_from_params_or_raise
     from .network import MLPQNetwork
 
     episodes = int(_cfg(params, "episodes", 100))
@@ -480,6 +497,13 @@ def _eval_match3(params: dict[str, Any]) -> None:
         ),
         seed=seed,
     )
+    validate_model_env_from_params_or_raise(
+        model,
+        "match3",
+        params,
+        allow_mismatch=bool(_cfg(params, "allow_env_mismatch", False)),
+        print_model_env=bool(_cfg(params, "print_model_env", False)),
+    )
     network = MLPQNetwork.load(model)
     stats = evaluate_match3_policy(env, network, episodes=episodes, seed_start=seed, max_steps=max_steps)
 
@@ -497,6 +521,7 @@ def _eval_match3(params: dict[str, Any]) -> None:
 def _eval_pacman(params: dict[str, Any]) -> None:
     from .evals.pacman_eval_utils import evaluate_pacman_policy
     from .games.pacman_lite import PacmanLiteConfig, PacmanLiteEnv
+    from .model_env_metadata import validate_model_env_from_params_or_raise
     from .network import MLPQNetwork
 
     episodes = int(_cfg(params, "episodes", 100))
@@ -520,6 +545,13 @@ def _eval_pacman(params: dict[str, Any]) -> None:
         ),
         seed=seed,
         state_grid_size=state_grid_size,
+    )
+    validate_model_env_from_params_or_raise(
+        model,
+        "pacman",
+        params,
+        allow_mismatch=bool(_cfg(params, "allow_env_mismatch", False)),
+        print_model_env=bool(_cfg(params, "print_model_env", False)),
     )
     network = MLPQNetwork.load(model)
     stats = evaluate_pacman_policy(env, network, episodes=episodes, seed_start=seed, max_steps=max_steps)

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
@@ -22,9 +23,10 @@ from .games.snake import SnakeConfig, SnakeEnv, SnakeFeatureEnv
 from .games.tetris import TetrisConfig, TetrisEnv, TetrisPlacementEnv
 from .evals.match3_eval_utils import evaluate_match3_policy
 from .evals.pacman_eval_utils import evaluate_pacman_policy
+from .model_env_metadata import dqn_model_metadata_from_params, write_model_metadata as write_generic_model_metadata
 from .network import AdamOptimizer, MLPQNetwork
 from .evals.pong_eval_utils import evaluate_pong_policy
-from .replay_buffer import ReplayBuffer
+from .replay_buffer import PrioritizedReplayBuffer, ReplayBuffer
 from .evals.shooter_eval_utils import evaluate_shooter_policy
 from .evals.snake_eval_utils import evaluate_snake_policy
 from .evals.tetris_eval_utils import evaluate_tetris_policy
@@ -54,6 +56,71 @@ class TrainHooks:
     loss_name: str = "mse"
     huber_delta: float = 1.0
     optimizer_max_grad_norm: float | None = None
+
+
+@dataclass
+class _StepTransition:
+    state: np.ndarray
+    action: int
+    reward: float
+    next_state: np.ndarray
+    done: bool
+    next_legal_actions: list[int] | None
+
+
+class NStepAccumulator:
+    def __init__(self, n_step: int) -> None:
+        self.n_step = max(int(n_step), 1)
+        self.buf: deque[_StepTransition] = deque()
+
+    def _emit_one(self, gamma: float, force_done: bool = False) -> _StepTransition:
+        k = min(self.n_step, len(self.buf))
+        first = self.buf[0]
+        reward_sum = 0.0
+        next_state = first.next_state
+        done = first.done
+        next_legal = first.next_legal_actions
+        for i in range(k):
+            t = self.buf[i]
+            reward_sum += (gamma**i) * float(t.reward)
+            next_state = t.next_state
+            done = bool(t.done)
+            next_legal = t.next_legal_actions
+            if done:
+                break
+        out = _StepTransition(
+            state=first.state,
+            action=int(first.action),
+            reward=float(reward_sum),
+            next_state=next_state,
+            done=bool(done or force_done),
+            next_legal_actions=next_legal,
+        )
+        self.buf.popleft()
+        return out
+
+    def append_and_pop_ready(
+        self,
+        transition: _StepTransition,
+        *,
+        gamma: float,
+        flush: bool = False,
+        force_terminal_flush: bool = False,
+    ) -> list[_StepTransition]:
+        self.buf.append(transition)
+        out: list[_StepTransition] = []
+        while len(self.buf) >= self.n_step:
+            out.append(self._emit_one(gamma=gamma, force_done=False))
+        if flush:
+            while self.buf:
+                out.append(self._emit_one(gamma=gamma, force_done=force_terminal_flush))
+        return out
+
+    def flush_remaining(self, *, gamma: float, force_terminal: bool) -> list[_StepTransition]:
+        out: list[_StepTransition] = []
+        while self.buf:
+            out.append(self._emit_one(gamma=gamma, force_done=force_terminal))
+        return out
 
 
 def parse_hidden_sizes(raw: str) -> tuple[int, ...]:
@@ -379,6 +446,7 @@ def train_dqn(env_name: str, params: dict[str, Any]) -> None:
     dueling = bool(_cfg(params, "dueling", False))
     train_every = int(_cfg(params, "train_every", 4))
     warmup_steps = int(_cfg(params, "warmup_steps", 2000))
+    n_step = max(int(_cfg(params, "n_step", 1)), 1)
     eps_start = float(_cfg(params, "eps_start", 1.0))
     eps_end = float(_cfg(params, "eps_end", 0.05))
     eps_decay_steps = int(_cfg(params, "eps_decay_steps", 120_000))
@@ -387,9 +455,21 @@ def train_dqn(env_name: str, params: dict[str, Any]) -> None:
     eval_episodes = int(_cfg(params, "eval_episodes", 30))
     save_dir = Path(str(_cfg(params, "save_dir", f"models/{env_name}")))
     save_dir.mkdir(parents=True, exist_ok=True)
+    per = bool(_cfg(params, "per", False))
+    per_alpha = float(_cfg(params, "per_alpha", 0.6))
+    per_beta_start = float(_cfg(params, "per_beta_start", 0.4))
+    per_beta_end = float(_cfg(params, "per_beta_end", 1.0))
+    per_beta_decay_steps = int(_cfg(params, "per_beta_decay_steps", max(eps_decay_steps, 1)))
+    per_priority_eps = float(_cfg(params, "per_priority_eps", 1e-6))
 
     rng = np.random.default_rng(seed)
     env0, hooks, extra = build_dqn_hooks(env_name, params, seed, episodes)
+    if hooks.write_metadata is None:
+        generic_metadata = dqn_model_metadata_from_params(env_name, params)
+        if generic_metadata is not None:
+            def _write_generic_metadata(path: Path) -> None:
+                write_generic_model_metadata(path, generic_metadata)
+            hooks.write_metadata = _write_generic_metadata
     state_dim = int(env0.reset(seed=seed).shape[0])
 
     online = MLPQNetwork(input_dim=state_dim, output_dim=env0.action_size, hidden_sizes=hidden_sizes, seed=seed, dueling=dueling)
@@ -397,11 +477,22 @@ def train_dqn(env_name: str, params: dict[str, Any]) -> None:
     target.copy_from(online)
 
     optimizer = AdamOptimizer(lr=lr, max_grad_norm=hooks.optimizer_max_grad_norm)
-    buffer = ReplayBuffer(capacity=buffer_size, state_dim=state_dim, action_dim=(env0.action_size if hooks.use_legal_masks else None))
+    if per:
+        buffer: ReplayBuffer | PrioritizedReplayBuffer = PrioritizedReplayBuffer(
+            capacity=buffer_size,
+            state_dim=state_dim,
+            action_dim=(env0.action_size if hooks.use_legal_masks else None),
+            alpha=per_alpha,
+        )
+    else:
+        buffer = ReplayBuffer(capacity=buffer_size, state_dim=state_dim, action_dim=(env0.action_size if hooks.use_legal_masks else None))
 
     global_step = 0
     best_eval = -float("inf")
-    print(f"Training {env_name} | double_dqn={double_dqn} dueling={dueling} hidden={hidden_sizes}")
+    print(
+        f"Training {env_name} | double_dqn={double_dqn} dueling={dueling} hidden={hidden_sizes} "
+        f"n_step={n_step} per={per}"
+    )
 
     for episode in range(1, episodes + 1):
         env = hooks.build_episode_env(episode)
@@ -413,6 +504,7 @@ def train_dqn(env_name: str, params: dict[str, Any]) -> None:
         td_abs_vals: list[float] = []
         trackers = hooks.on_episode_start(env) if hooks.on_episode_start else {}
         info: dict[str, Any] = {}
+        nstep_acc = NStepAccumulator(n_step=n_step)
 
         while not done and steps < max_steps:
             legal_actions = env.legal_actions() if hasattr(env, "legal_actions") else []
@@ -432,7 +524,21 @@ def train_dqn(env_name: str, params: dict[str, Any]) -> None:
                 reward_val = float(hooks.reward_shaper(np.asarray(state, dtype=np.float32), np.asarray(next_state, dtype=np.float32), reward_val, info))
 
             next_legal = env.legal_actions() if hooks.use_legal_masks else None
-            buffer.add(state, action, reward_val, next_state, done, next_legal_actions=next_legal)
+            ready = nstep_acc.append_and_pop_ready(
+                _StepTransition(
+                    state=np.asarray(state, dtype=np.float32).copy(),
+                    action=int(action),
+                    reward=float(reward_val),
+                    next_state=np.asarray(next_state, dtype=np.float32).copy(),
+                    done=bool(done),
+                    next_legal_actions=(list(next_legal) if next_legal is not None else None),
+                ),
+                gamma=gamma,
+                flush=bool(done),
+                force_terminal_flush=False,
+            )
+            for t in ready:
+                buffer.add(t.state, t.action, t.reward, t.next_state, t.done, next_legal_actions=t.next_legal_actions)
 
             if hooks.on_step is not None:
                 hooks.on_step(trackers, info)
@@ -442,7 +548,11 @@ def train_dqn(env_name: str, params: dict[str, Any]) -> None:
             state = next_state
 
             if len(buffer) >= batch_size and global_step >= warmup_steps and global_step % train_every == 0:
-                batch = buffer.sample(batch_size, rng)
+                if per and isinstance(buffer, PrioritizedReplayBuffer):
+                    beta = epsilon_by_step(global_step, per_beta_start, per_beta_end, per_beta_decay_steps)
+                    batch = buffer.sample(batch_size, rng, beta=beta)
+                else:
+                    batch = buffer.sample(batch_size, rng)
                 target_q = np.asarray(target.predict_batch(batch.next_states), dtype=np.float32)
                 if hooks.use_legal_masks:
                     legal_masks = batch.next_legal_masks
@@ -463,23 +573,42 @@ def train_dqn(env_name: str, params: dict[str, Any]) -> None:
                 if hooks.target_clip is not None and hooks.target_clip > 0:
                     max_next_q = np.clip(max_next_q, -hooks.target_clip, hooks.target_clip)
 
-                td_target = batch.rewards + gamma * (1.0 - batch.dones) * max_next_q
+                gamma_bootstrap = float(gamma**n_step)
+                td_target = batch.rewards + gamma_bootstrap * (1.0 - batch.dones) * max_next_q
                 if hooks.target_clip is not None and hooks.target_clip > 0:
                     td_target = np.clip(td_target, -hooks.target_clip, hooks.target_clip)
-
-                loss, td_abs = online.train_batch(
-                    batch.states,
-                    batch.actions,
-                    td_target,
-                    optimizer,
-                    loss=hooks.loss_name,
-                    huber_delta=hooks.huber_delta,
-                )
+                if per and isinstance(buffer, PrioritizedReplayBuffer):
+                    loss, td_abs, td_vec = online.train_batch(
+                        batch.states,
+                        batch.actions,
+                        td_target,
+                        optimizer,
+                        loss=hooks.loss_name,
+                        huber_delta=hooks.huber_delta,
+                        sample_weights=batch.weights,
+                        return_td_errors=True,
+                    )
+                    if batch.indices is not None:
+                        buffer.update_priorities(batch.indices, td_vec + per_priority_eps, eps=per_priority_eps)
+                else:
+                    loss, td_abs = online.train_batch(
+                        batch.states,
+                        batch.actions,
+                        td_target,
+                        optimizer,
+                        loss=hooks.loss_name,
+                        huber_delta=hooks.huber_delta,
+                    )
                 losses.append(float(loss))
                 td_abs_vals.append(float(td_abs))
 
             if global_step % target_update == 0:
                 target.copy_from(online)
+
+        # Flush any remaining short n-step transitions on time-limit truncation.
+        if not done and n_step > 1:
+            for t in nstep_acc.flush_remaining(gamma=gamma, force_terminal=True):
+                buffer.add(t.state, t.action, t.reward, t.next_state, t.done, next_legal_actions=t.next_legal_actions)
 
         mean_loss = float(np.mean(losses)) if losses else 0.0
         mean_td_abs = float(np.mean(td_abs_vals)) if td_abs_vals else 0.0

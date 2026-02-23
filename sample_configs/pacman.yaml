@@ -10,6 +10,8 @@ train:
   max-steps: 500
   double-dqn: true
   dueling: true
+  per: true
+  n-step: 3
   hidden-sizes: "256,256"
   lr: 0.0005
   eps-decay-steps: 120000

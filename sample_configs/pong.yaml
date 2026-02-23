@@ -7,6 +7,8 @@ train:
   eval-episodes: 50
   double-dqn: true
   dueling: true
+  per: true
+  n-step: 3
   save-dir: models/pong
 eval:
   model: models/pong/pong_dqn_best.json

@@ -8,6 +8,8 @@ train:
   grid-size: 10
   double-dqn: true
   dueling: true
+  per: true
+  n-step: 3
   hidden-sizes: "128,128"
   lr: 0.0003
   eps-decay-steps: 40000

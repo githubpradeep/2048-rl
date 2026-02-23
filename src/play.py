@@ -105,6 +105,21 @@ def _print_json_params(params: dict[str, Any]) -> None:
     print(json.dumps(params, sort_keys=True, indent=2))
 
 
+def _prevalidate_model_env(env_name: str, params: dict[str, Any]) -> None:
+    if "model" not in params:
+        return
+    if env_name in {"snake", "tetris", "match3", "pacman"}:
+        from .model_env_metadata import validate_model_env_from_params_or_raise
+
+        validate_model_env_from_params_or_raise(
+            str(params["model"]),
+            env_name,
+            params,
+            allow_mismatch=bool(params.get("allow_env_mismatch", False)),
+            print_model_env=bool(params.get("print_model_env", False)),
+        )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Unified generic player (YAML-driven)")
     parser.add_argument("--env", required=True, choices=sorted(PLAY_MODULES))
@@ -134,9 +149,12 @@ def main() -> None:
     params = {**common, **merged_play}
     if rest:
         params.update(_parse_overrides(rest))
-
     module_name = PLAY_MODULES[args.env]
-    argv_tail = _build_args_from_mapping(params)
+    params_for_module = dict(params)
+    if args.env not in {"flappy", "flappy_tabular"}:
+        params_for_module.pop("allow_env_mismatch", None)
+        params_for_module.pop("print_model_env", None)
+    argv_tail = _build_args_from_mapping(params_for_module)
     cmd_preview = [sys.executable, "-m", module_name, *argv_tail]
 
     print(f"Config: {config_path}")
@@ -144,6 +162,8 @@ def main() -> None:
     if args.dry_run:
         _print_json_params(params)
         return
+
+    _prevalidate_model_env(args.env, params)
 
     module = importlib.import_module(module_name)
     if not hasattr(module, "main"):

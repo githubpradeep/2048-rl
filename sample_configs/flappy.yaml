@@ -7,6 +7,8 @@ train:
   eval-episodes: 100
   double-dqn: true
   dueling: true
+  per: true
+  n-step: 3
   env-preset: standard
   save-dir: models/flappy_standard
 eval:
