@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 
-SUPPORTED_GENERIC_ENVS = {"snake", "tetris", "match3", "pacman"}
+SUPPORTED_GENERIC_ENVS = {"snake", "tetris", "match3", "pacman", "pong", "breakout", "fruit", "shooter"}
 
 
 def _read_model_json(path: str | Path) -> dict[str, Any]:
@@ -107,6 +107,48 @@ def runtime_env_config_from_params(env_name: str, params: dict[str, Any]) -> dic
             "start_lives": _as_int(params, "start_lives", 3),
         }
 
+    if env_name == "pong":
+        return {
+            "width": _as_int(params, "width", 12),
+            "height": _as_int(params, "height", 16),
+            "paddle_height": _as_int(params, "paddle_height", 4),
+            "paddle_speed": _as_int(params, "paddle_speed", 1),
+            "opponent_track_prob": _as_float(params, "opponent_track_prob", 0.85),
+            "start_lives": _as_int(params, "start_lives", 3),
+            "max_steps": _as_int(params, "max_steps", 1000),
+        }
+
+    if env_name == "breakout":
+        return {
+            "width": _as_int(params, "width", 12),
+            "height": _as_int(params, "height", 14),
+            "brick_rows": _as_int(params, "brick_rows", 4),
+            "brick_top": _as_int(params, "brick_top", 1),
+            "paddle_width": _as_int(params, "paddle_width", 3),
+            "start_lives": _as_int(params, "start_lives", 3),
+            "max_steps": _as_int(params, "max_steps", 1200),
+        }
+
+    if env_name == "fruit":
+        grid_size = _as_int(params, "grid_size", 10)
+        return {
+            "grid_size": grid_size,
+            "state_grid_size": (_as_int(params, "state_grid_size", 0) or grid_size),
+            "spawn_prob": _as_float(params, "spawn_prob", 0.45),
+            "bomb_prob": _as_float(params, "bomb_prob", 0.18),
+            "max_steps": _as_int(params, "max_steps", 500),
+        }
+
+    if env_name == "shooter":
+        grid_size = _as_int(params, "grid_size", 10)
+        return {
+            "grid_size": grid_size,
+            "state_grid_size": (_as_int(params, "state_grid_size", 0) or grid_size),
+            "spawn_prob": _as_float(params, "spawn_prob", 0.35),
+            "max_steps": _as_int(params, "max_steps", 600),
+            "start_lives": _as_int(params, "start_lives", 3),
+        }
+
     return None
 
 
@@ -123,7 +165,13 @@ def dqn_model_metadata_from_params(env_name: str, params: dict[str, Any]) -> dic
     }
 
 
-def _compare_env_cfg(expected_env_name: str, metadata: dict[str, Any] | None, runtime_cfg: dict[str, Any]) -> list[str]:
+def _compare_env_cfg(
+    expected_env_name: str,
+    metadata: dict[str, Any] | None,
+    runtime_cfg: dict[str, Any],
+    *,
+    ignore_keys: set[str] | None = None,
+) -> list[str]:
     if metadata is None:
         return ["Model has no environment metadata (older checkpoint format)."]
     model_game = metadata.get("game")
@@ -134,7 +182,8 @@ def _compare_env_cfg(expected_env_name: str, metadata: dict[str, Any] | None, ru
         return ["Model metadata missing env_config."]
 
     mismatches: list[str] = []
-    for key in sorted(set(env_cfg.keys()) | set(runtime_cfg.keys())):
+    ignored = ignore_keys or set()
+    for key in sorted((set(env_cfg.keys()) | set(runtime_cfg.keys())) - ignored):
         mv = env_cfg.get(key)
         rv = runtime_cfg.get(key)
         if mv != rv:
@@ -149,6 +198,7 @@ def validate_model_env_from_params_or_raise(
     *,
     allow_mismatch: bool = False,
     print_model_env: bool = False,
+    ignore_keys: set[str] | None = None,
 ) -> None:
     runtime_cfg = runtime_env_config_from_params(env_name, params)
     if runtime_cfg is None:
@@ -170,11 +220,10 @@ def validate_model_env_from_params_or_raise(
                     sort_keys=True,
                 ),
             )
-    mismatches = _compare_env_cfg(env_name, metadata, runtime_cfg)
+    mismatches = _compare_env_cfg(env_name, metadata, runtime_cfg, ignore_keys=ignore_keys)
     if mismatches and not allow_mismatch:
         raise ValueError(
             "Model/runtime env mismatch detected.\n"
             + "\n".join(mismatches)
             + "\nUse matching eval/play config or pass --allow-env-mismatch to override."
         )
-

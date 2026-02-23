@@ -149,6 +149,7 @@ def _eval_snake(params: dict[str, Any]) -> None:
 def _eval_fruit(params: dict[str, Any]) -> None:
     from .evals.fruit_eval_utils import evaluate_fruit_policy
     from .games.fruit_cutter import FruitCutterConfig, FruitCutterEnv
+    from .model_env_metadata import validate_model_env_from_params_or_raise
     from .network import MLPQNetwork
 
     episodes = int(_cfg(params, "episodes", 100))
@@ -163,6 +164,13 @@ def _eval_fruit(params: dict[str, Any]) -> None:
         config=FruitCutterConfig(grid_size=grid_size, spawn_prob=spawn_prob, bomb_prob=bomb_prob),
         seed=seed,
         state_grid_size=state_grid_size,
+    )
+    validate_model_env_from_params_or_raise(
+        model,
+        "fruit",
+        params,
+        allow_mismatch=bool(_cfg(params, "allow_env_mismatch", False)),
+        print_model_env=bool(_cfg(params, "print_model_env", False)),
     )
     network = MLPQNetwork.load(model)
     stats = evaluate_fruit_policy(env, network, episodes=episodes, seed_start=seed)
@@ -179,6 +187,7 @@ def _eval_fruit(params: dict[str, Any]) -> None:
 
 def _eval_shooter(params: dict[str, Any]) -> None:
     from .games.shooter import ShooterConfig, ShooterEnv
+    from .model_env_metadata import validate_model_env_from_params_or_raise
     from .network import MLPQNetwork
     from .evals.shooter_eval_utils import evaluate_shooter_policy
 
@@ -194,6 +203,13 @@ def _eval_shooter(params: dict[str, Any]) -> None:
         config=ShooterConfig(grid_size=grid_size, spawn_prob=spawn_prob, max_steps=max_steps),
         seed=seed,
         state_grid_size=state_grid_size,
+    )
+    validate_model_env_from_params_or_raise(
+        model,
+        "shooter",
+        params,
+        allow_mismatch=bool(_cfg(params, "allow_env_mismatch", False)),
+        print_model_env=bool(_cfg(params, "print_model_env", False)),
     )
     network = MLPQNetwork.load(model)
     stats = evaluate_shooter_policy(env, network, episodes=episodes, seed_start=seed)
@@ -395,6 +411,7 @@ def _eval_flappy_heuristic(params: dict[str, Any]) -> None:
 def _eval_breakout(params: dict[str, Any]) -> None:
     from .evals.breakout_eval_utils import evaluate_breakout_policy
     from .games.breakout import BreakoutConfig, BreakoutEnv
+    from .model_env_metadata import validate_model_env_from_params_or_raise
     from .network import MLPQNetwork
 
     episodes = int(_cfg(params, "episodes", 100))
@@ -418,6 +435,13 @@ def _eval_breakout(params: dict[str, Any]) -> None:
         ),
         seed=seed,
     )
+    validate_model_env_from_params_or_raise(
+        model,
+        "breakout",
+        params,
+        allow_mismatch=bool(_cfg(params, "allow_env_mismatch", False)),
+        print_model_env=bool(_cfg(params, "print_model_env", False)),
+    )
     network = MLPQNetwork.load(model)
     stats = evaluate_breakout_policy(env, network, episodes=episodes, seed_start=seed, max_steps=max_steps)
 
@@ -434,6 +458,7 @@ def _eval_breakout(params: dict[str, Any]) -> None:
 
 def _eval_pong(params: dict[str, Any]) -> None:
     from .games.pong import PongConfig, PongEnv
+    from .model_env_metadata import validate_model_env_from_params_or_raise
     from .network import MLPQNetwork
     from .evals.pong_eval_utils import evaluate_pong_policy
 
@@ -457,6 +482,13 @@ def _eval_pong(params: dict[str, Any]) -> None:
             max_steps=max_steps,
         ),
         seed=seed,
+    )
+    validate_model_env_from_params_or_raise(
+        model,
+        "pong",
+        params,
+        allow_mismatch=bool(_cfg(params, "allow_env_mismatch", False)),
+        print_model_env=bool(_cfg(params, "print_model_env", False)),
     )
     network = MLPQNetwork.load(model)
     stats = evaluate_pong_policy(env, network, episodes=episodes, seed_start=seed, max_steps=max_steps)

@@ -108,7 +108,7 @@ def _print_json_params(params: dict[str, Any]) -> None:
 def _prevalidate_model_env(env_name: str, params: dict[str, Any]) -> None:
     if "model" not in params:
         return
-    if env_name in {"snake", "tetris", "match3", "pacman"}:
+    if env_name in {"snake", "tetris", "match3", "pacman", "pong", "breakout", "fruit", "shooter"}:
         from .model_env_metadata import validate_model_env_from_params_or_raise
 
         validate_model_env_from_params_or_raise(
@@ -117,6 +117,7 @@ def _prevalidate_model_env(env_name: str, params: dict[str, Any]) -> None:
             params,
             allow_mismatch=bool(params.get("allow_env_mismatch", False)),
             print_model_env=bool(params.get("print_model_env", False)),
+            ignore_keys={"max_steps"},
         )
 
 
