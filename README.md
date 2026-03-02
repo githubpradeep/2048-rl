@@ -30,6 +30,7 @@ No `gymnasium`. No `stable-baselines3`.
 
 ## Docs
 - Framework + 2048 deep dive + multi-game walkthrough: `docs/2048_rl_tutorial.md`
+- Multitask BC generalist tutorial: `docs/multitask_bc_tutorial.md`
 
 ## Install
 

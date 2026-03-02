@@ -1,0 +1,59 @@
+env: multitask_bc
+
+common:
+  seed: 42
+
+dataset:
+  manifest: data/multitask_bc/manifest.json
+  shard-root: data/multitask_bc/shards
+  auto-export: true
+  refresh-export: false
+  tasks:
+    - game: pong
+      policy-type: dqn
+      model-path: models/pong/pong_dqn_best.json
+      sample-weight: 1.0
+      max-episodes: 1500
+    - game: breakout
+      policy-type: dqn
+      model-path: models/breakout/breakout_dqn_best.json
+      sample-weight: 1.0
+      max-episodes: 1500
+    - game: snake
+      policy-type: dqn
+      model-path: models/snake_features/snake_dqn_best.json
+      state-mode: features
+      sample-weight: 1.0
+      max-episodes: 1500
+    - game: flappy
+      policy-type: dqn
+      model-path: models/flappy_standard/flappy_dqn_best.json
+      env-overrides:
+        env-preset: standard
+      sample-weight: 1.0
+      max-episodes: 1500
+
+model:
+  shared-width: 128
+  trunk-hidden-sizes: "128,128"
+
+train:
+  epochs: 20
+  steps-per-epoch: 200
+  batch-size: 64
+  lr: 0.0003
+  grad-clip: 1.0
+  label-smoothing: 0.0
+  eval-every: 1
+  save-dir: models/multitask_bc
+
+eval:
+  model: models/multitask_bc/multitask_bc_best.json
+  game: pong
+  episodes: 50
+
+play:
+  model: models/multitask_bc/multitask_bc_best.json
+  game: pong
+  mode: pygame
+  delay: 0.06
