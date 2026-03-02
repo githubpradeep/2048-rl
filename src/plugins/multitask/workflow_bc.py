@@ -163,6 +163,7 @@ def export_multitask_bc_dataset(cfg: dict[str, Any], *, manifest_path: Path | No
         states: list[np.ndarray] = []
         actions: list[int] = []
         masks: list[np.ndarray] = []
+        teacher_q_values: list[np.ndarray] = []
         episode_ids: list[int] = []
         rewards: list[float] = []
 
@@ -174,6 +175,7 @@ def export_multitask_bc_dataset(cfg: dict[str, Any], *, manifest_path: Path | No
             max_steps = int(task.get("max_steps", params.get("max_steps", 1000)))
             while not done and steps < max_steps:
                 legal_actions = env.legal_actions() if hasattr(env, "legal_actions") else list(range(int(env.action_size)))
+                teacher_q = np.asarray(teacher.predict_one(state), dtype=np.float32)
                 action = _pick_teacher_action(teacher, state, legal_actions)
                 mask = np.zeros((int(env.action_size),), dtype=np.float32)
                 if legal_actions:
@@ -185,6 +187,7 @@ def export_multitask_bc_dataset(cfg: dict[str, Any], *, manifest_path: Path | No
                 states.append(state.copy())
                 actions.append(int(action))
                 masks.append(mask)
+                teacher_q_values.append(teacher_q.copy())
                 episode_ids.append(ep - 1)
                 rewards.append(float(reward))
 
@@ -197,6 +200,7 @@ def export_multitask_bc_dataset(cfg: dict[str, Any], *, manifest_path: Path | No
         states_arr = np.stack(states, axis=0).astype(np.float32)
         actions_arr = np.asarray(actions, dtype=np.int64)
         masks_arr = np.stack(masks, axis=0).astype(np.float32)
+        teacher_q_arr = np.stack(teacher_q_values, axis=0).astype(np.float32)
         episode_ids_arr = np.asarray(episode_ids, dtype=np.int64)
         rewards_arr = np.asarray(rewards, dtype=np.float32)
 
@@ -208,6 +212,7 @@ def export_multitask_bc_dataset(cfg: dict[str, Any], *, manifest_path: Path | No
             states=states_arr,
             actions=actions_arr,
             legal_masks=masks_arr,
+            teacher_q_values=teacher_q_arr,
             episode_ids=episode_ids_arr,
             rewards=rewards_arr,
             state_dim=np.asarray(states_arr.shape[1], dtype=np.int32),
@@ -248,6 +253,7 @@ class MultitaskBCDataset:
                 "states": np.asarray(data["states"], dtype=np.float32),
                 "actions": np.asarray(data["actions"], dtype=np.int64),
                 "legal_masks": np.asarray(data["legal_masks"], dtype=np.float32),
+                "teacher_q_values": np.asarray(data["teacher_q_values"], dtype=np.float32) if "teacher_q_values" in data else None,
                 "rewards": np.asarray(data["rewards"], dtype=np.float32) if "rewards" in data else None,
                 "episode_ids": np.asarray(data["episode_ids"], dtype=np.int64) if "episode_ids" in data else None,
                 "state_dim": int(data["state_dim"].item()),
@@ -287,6 +293,7 @@ class MultitaskBCDataset:
             "states": shard["states"][idx],
             "actions": shard["actions"][idx],
             "legal_masks": shard["legal_masks"][idx],
+            "teacher_q_values": shard["teacher_q_values"][idx] if shard["teacher_q_values"] is not None else None,
         }
 
 
@@ -298,6 +305,28 @@ def _build_task_sampling_weights(tasks: list[dict[str, Any]]) -> dict[str, float
         norm = _normalize(item)
         out[str(norm.get("game"))] = float(norm.get("sample_weight", 1.0))
     return out
+
+
+def _distill_settings_for_game(cfg: dict[str, Any], game: str) -> tuple[bool, float, float]:
+    train_cfg = dict(cfg.get("train") or {})
+    enabled = bool(train_cfg.get("distill", False))
+    alpha = float(train_cfg.get("distill_alpha", 0.6))
+    temperature = float(train_cfg.get("distill_temperature", 2.0))
+
+    overrides = _normalize(dict(train_cfg.get("distill_overrides") or {}))
+    game_cfg = overrides.get(game)
+    if isinstance(game_cfg, dict):
+        if "distill" in game_cfg:
+            enabled = bool(game_cfg["distill"])
+        if "alpha" in game_cfg:
+            alpha = float(game_cfg["alpha"])
+        if "distill_alpha" in game_cfg:
+            alpha = float(game_cfg["distill_alpha"])
+        if "temperature" in game_cfg:
+            temperature = float(game_cfg["temperature"])
+        if "distill_temperature" in game_cfg:
+            temperature = float(game_cfg["distill_temperature"])
+    return enabled, alpha, temperature
 
 
 def _load_multitask_model(model_path: str) -> MultitaskBCNetwork:
@@ -387,6 +416,9 @@ def _train(cfg: dict[str, Any]) -> None:
     grad_clip = train_cfg.get("grad_clip", 1.0)
     grad_clip_f = None if grad_clip is None else float(grad_clip)
     label_smoothing = float(train_cfg.get("label_smoothing", 0.0))
+    distill = bool(train_cfg.get("distill", False))
+    default_distill_alpha = float(train_cfg.get("distill_alpha", 0.6))
+    default_distill_temperature = float(train_cfg.get("distill_temperature", 2.0))
     epochs = int(train_cfg.get("epochs", 20))
     steps_per_epoch = int(train_cfg.get("steps_per_epoch", 200))
     batch_size = int(train_cfg.get("batch_size", 64))
@@ -411,15 +443,32 @@ def _train(cfg: dict[str, Any]) -> None:
     print(
         f"Training multitask_bc (shared MLP BC) | games={','.join(ds.games)} "
         f"| epochs={epochs} steps/epoch={steps_per_epoch} batch={batch_size}"
+        f" | distill={'on' if distill else 'off'}"
     )
+    if distill:
+        override_parts: list[str] = []
+        for game in ds.games:
+            g_on, g_alpha, g_temp = _distill_settings_for_game(cfg, game)
+            if (
+                g_on != distill
+                or abs(g_alpha - default_distill_alpha) > 1e-8
+                or abs(g_temp - default_distill_temperature) > 1e-8
+            ):
+                state = "on" if g_on else "off"
+                override_parts.append(f"{game}:{state},a={g_alpha:.2f},t={g_temp:.2f}")
+        if override_parts:
+            print("  distill-overrides: " + " | ".join(override_parts))
     for epoch in range(1, epochs + 1):
         losses: list[float] = []
         accs: list[float] = []
+        ce_losses: list[float] = []
+        distill_losses: list[float] = []
         game_counts = {g: 0 for g in ds.games}
         for _ in range(steps_per_epoch):
             game = ds.sample_game(rng, task_weights)
             game_counts[game] += 1
             batch = ds.sample_batch(game, batch_size, rng)
+            game_distill, game_alpha, game_temp = _distill_settings_for_game(cfg, game)
             metrics = model.train_game_batch(
                 game=game,
                 states=batch["states"],
@@ -427,14 +476,25 @@ def _train(cfg: dict[str, Any]) -> None:
                 legal_masks=batch["legal_masks"],
                 optimizers=optim,
                 label_smoothing=label_smoothing,
+                teacher_q_values=batch["teacher_q_values"],
+                distill=game_distill,
+                distill_alpha=game_alpha,
+                distill_temperature=game_temp,
             )
             losses.append(float(metrics["loss"]))
             accs.append(float(metrics["acc"]))
+            ce_losses.append(float(metrics.get("ce_loss", metrics["loss"])))
+            if "distill_loss" in metrics:
+                distill_losses.append(float(metrics["distill_loss"]))
 
-        print(
-            f"epoch={epoch:3d} loss={float(np.mean(losses)):.4f} acc={float(np.mean(accs)):.4f} "
-            + " ".join(f"{g}:{game_counts[g]}" for g in sorted(game_counts))
+        line = (
+            f"epoch={epoch:3d} loss={float(np.mean(losses)):.4f} "
+            f"ce={float(np.mean(ce_losses)):.4f} acc={float(np.mean(accs)):.4f}"
         )
+        if distill and distill_losses:
+            line += f" kl={float(np.mean(distill_losses)):.4f}"
+        line += " " + " ".join(f"{g}:{game_counts[g]}" for g in sorted(game_counts))
+        print(line)
         if epoch % eval_every == 0:
             _stats, summary, metric = _eval_multitask(cfg, model=model, game=eval_game, episodes=eval_episodes, seed=seed + 7000)
             print(f"  eval({eval_game}): {summary}")
@@ -567,4 +627,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

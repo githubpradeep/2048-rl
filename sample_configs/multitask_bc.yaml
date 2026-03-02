@@ -44,6 +44,16 @@ train:
   lr: 0.0003
   grad-clip: 1.0
   label-smoothing: 0.0
+  distill: true
+  distill-alpha: 0.6
+  distill-temperature: 2.0
+  distill-overrides:
+    pong:
+      alpha: 0.7
+      temperature: 1.5
+    flappy:
+      alpha: 0.5
+      temperature: 2.5
   eval-every: 1
   save-dir: models/multitask_bc
 

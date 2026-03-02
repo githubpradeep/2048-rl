@@ -135,6 +135,10 @@ class MultitaskBCNetwork:
         legal_masks: np.ndarray,
         optimizers: MultitaskBCOptimizers,
         label_smoothing: float = 0.0,
+        teacher_q_values: np.ndarray | None = None,
+        distill: bool = False,
+        distill_alpha: float = 0.6,
+        distill_temperature: float = 2.0,
     ) -> dict[str, float]:
         logits, cache = self._forward_game(game, states)
         B, A = logits.shape
@@ -153,12 +157,31 @@ class MultitaskBCNetwork:
             targets = (1.0 - ls) * targets + ls * smooth
 
         log_probs = np.log(np.maximum(probs, 1e-12))
-        loss = float(-np.sum(targets * log_probs) / max(B, 1))
+        ce_loss = float(-np.sum(targets * log_probs) / max(B, 1))
         pred = np.argmax(probs, axis=1)
         acc = float(np.mean(pred == actions_arr)) if B > 0 else 0.0
 
-        grad_logits = (probs - targets) / max(B, 1)
-        grad_logits = np.where(legal_arr > 0.5, grad_logits, 0.0)
+        grad_ce = (probs - targets) / max(B, 1)
+        grad_ce = np.where(legal_arr > 0.5, grad_ce, 0.0)
+
+        use_distill = bool(distill and teacher_q_values is not None)
+        distill_loss = 0.0
+        grad_logits = grad_ce
+        if use_distill:
+            temp = max(float(distill_temperature), 1e-4)
+            alpha = float(np.clip(distill_alpha, 0.0, 1.0))
+            teacher_q = np.asarray(teacher_q_values, dtype=np.float32).reshape(B, A)
+            masked_teacher_q = np.where(legal_arr > 0.5, teacher_q, -1e9)
+            student_probs_t = _softmax_last(masked_logits / temp)
+            teacher_probs_t = _softmax_last(masked_teacher_q / temp)
+            distill_log_probs = np.log(np.maximum(student_probs_t, 1e-12))
+            distill_loss = float(-np.sum(teacher_probs_t * distill_log_probs) / max(B, 1))
+            grad_distill = (student_probs_t - teacher_probs_t) / (max(B, 1) * temp)
+            grad_distill = np.where(legal_arr > 0.5, grad_distill, 0.0)
+            grad_logits = alpha * grad_ce + (1.0 - alpha) * grad_distill
+            loss = alpha * ce_loss + (1.0 - alpha) * distill_loss
+        else:
+            loss = ce_loss
 
         # Head gradients
         features = np.asarray(cache["features"], dtype=np.float32)
@@ -200,7 +223,10 @@ class MultitaskBCNetwork:
             [grad_head_b.astype(np.float32)],
         )
 
-        return {"loss": loss, "acc": acc}
+        metrics = {"loss": loss, "acc": acc, "ce_loss": ce_loss}
+        if use_distill:
+            metrics["distill_loss"] = distill_loss
+        return metrics
 
     def save(self, path: str | Path) -> None:
         p = Path(path)
@@ -242,4 +268,3 @@ class MultitaskBCNetwork:
         model.shared_b = [np.asarray(b, dtype=np.float32) for b in payload["shared_b"]]
         model.feature_dim = model.shared_w[-1].shape[1] if model.shared_w else model.shared_width
         return model
-

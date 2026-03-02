@@ -14,6 +14,7 @@ The current implementation is intentionally simple:
 - shared MLP trunk
 - per-game action heads
 - supervised cross-entropy on teacher actions
+- optional teacher-logit distillation (CE + KL on teacher Q-values)
 
 No transformer. No RTG. No Decision Transformer.
 
@@ -75,10 +76,16 @@ Each exported shard stores:
 - `states`
 - `actions`
 - `legal_masks`
+- `teacher_q_values`
 - `episode_ids`
 - `rewards` (auxiliary metadata)
 
-Even though BC only needs actions, rewards are kept for later analysis.
+The BC trainer can use both:
+
+- hard teacher actions
+- soft teacher Q-value preferences
+
+That gives better supervision than one-hot labels alone.
 
 ## Config schema
 
@@ -119,8 +126,36 @@ Each task supports:
 - `lr`
 - `grad-clip`
 - `label-smoothing`
+- `distill`
+- `distill-alpha`
+- `distill-temperature`
+- `distill-overrides`
 - `eval-every`
 - `save-dir`
+
+`distill-overrides` is a per-game mapping. Each game can override:
+
+- `distill`
+- `alpha`
+- `temperature`
+
+Example:
+
+```yaml
+train:
+  distill: true
+  distill-alpha: 0.6
+  distill-temperature: 2.0
+  distill-overrides:
+    pong:
+      alpha: 0.7
+      temperature: 1.5
+    flappy:
+      alpha: 0.5
+      temperature: 2.5
+```
+
+Use this when teacher Q-values are calibrated differently across games.
 
 ### `eval`
 
@@ -145,8 +180,12 @@ What happens:
 
 1. teacher trajectories are exported (if needed)
 2. shared BC model is trained
-3. eval runs every `eval-every`
-4. checkpoints saved:
+3. if `distill: true`, the student matches both:
+   - teacher chosen action
+   - teacher Q-value distribution
+   - with optional per-game `alpha` / `temperature` overrides
+4. eval runs every `eval-every`
+5. checkpoints saved:
    - `multitask_bc_best.json`
    - `multitask_bc_final.json`
 
@@ -209,19 +248,14 @@ The model is simple, and early success depends more on clean task scope than on 
 ## Known limitations
 
 - single-step BC only (no temporal memory)
-- hard action labels only (no teacher logit distillation yet)
 - DQN teachers only
 - no mixed modality sequence model
 
 ## Best next improvements
 
-1. Teacher-logit distillation
-- export teacher Q-values
-- train KL + CE instead of hard labels only
-
-2. Better dataset balancing
+1. Better dataset balancing
 - more teacher coverage
 - per-game caps / weights
 
-3. Stronger benchmarking
+2. Stronger benchmarking
 - compare specialist vs multitask BC across fixed seeds
