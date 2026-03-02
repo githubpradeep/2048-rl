@@ -6,3 +6,4 @@ models/*.json
 models/**/*.npz
 models/**/*.json
 logs/
+data/

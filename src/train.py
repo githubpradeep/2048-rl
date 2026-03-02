@@ -20,6 +20,7 @@ SUPPORTED_ENVS = (
     "snake",
     "tetris",
     "tetris_afterstate",
+    "multitask_bc",
 )
 DQN_ENVS = {"2048", "breakout", "flappy", "fruit", "match3", "pacman", "pong", "shooter", "snake", "tetris"}
 
@@ -44,6 +45,19 @@ def _normalize_section(value: Any, section_name: str) -> dict[str, Any]:
 
 
 def _parse_overrides(tokens: list[str]) -> dict[str, Any]:
+    def _coerce(raw: str) -> Any:
+        low = raw.lower()
+        if low in {"true", "false"}:
+            return (low == "true")
+        if raw[:1] in {"[", "{"}:
+            try:
+                import yaml  # type: ignore
+
+                return yaml.safe_load(raw)
+            except Exception:
+                return raw
+        return raw
+
     overrides: dict[str, Any] = {}
     i = 0
     while i < len(tokens):
@@ -57,11 +71,7 @@ def _parse_overrides(tokens: list[str]) -> dict[str, Any]:
             continue
         if i + 1 < len(tokens) and not tokens[i + 1].startswith("--"):
             raw = tokens[i + 1]
-            low = raw.lower()
-            if low in {"true", "false"}:
-                overrides[key] = (low == "true")
-            else:
-                overrides[key] = raw
+            overrides[key] = _coerce(raw)
             i += 2
             continue
         overrides[key] = True
@@ -168,6 +178,20 @@ def main() -> None:
         params.update(_parse_overrides(rest))
 
     print(f"Config: {config_path}")
+    if args.env == "multitask_bc":
+        from .plugins.multitask.workflow_bc import apply_cli_overrides, run_train_from_config
+
+        if args.dry_run:
+            cfg = apply_cli_overrides(config, _parse_overrides(rest), section="train")
+            cfg["env"] = args.env
+            _print_json_params(cfg)
+            return
+        cfg = apply_cli_overrides(config, _parse_overrides(rest), section="train") if rest else config
+        if isinstance(cfg, dict):
+            cfg["env"] = args.env
+        run_train_from_config(cfg)
+        return
+
     if args.dry_run:
         _print_json_params(params)
         return

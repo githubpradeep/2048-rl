@@ -22,6 +22,7 @@ PLAY_MODULES = {
     "snake": "src.plugins.playback.play_snake_agent",
     "tetris": "src.plugins.playback.play_tetris_agent",
     "tetris_afterstate": "src.plugins.playback.play_tetris_afterstate_agent",
+    "multitask_bc": "src.plugins.multitask.workflow_bc",
 }
 
 
@@ -63,6 +64,19 @@ def _build_args_from_mapping(params: dict[str, Any]) -> list[str]:
 
 
 def _parse_overrides(tokens: list[str]) -> dict[str, Any]:
+    def _coerce(raw: str) -> Any:
+        low = raw.lower()
+        if low in {"true", "false"}:
+            return (low == "true")
+        if raw[:1] in {"[", "{"}:
+            try:
+                import yaml  # type: ignore
+
+                return yaml.safe_load(raw)
+            except Exception:
+                return raw
+        return raw
+
     overrides: dict[str, Any] = {}
     i = 0
     while i < len(tokens):
@@ -76,8 +90,7 @@ def _parse_overrides(tokens: list[str]) -> dict[str, Any]:
             continue
         if i + 1 < len(tokens) and not tokens[i + 1].startswith("--"):
             raw = tokens[i + 1]
-            low = raw.lower()
-            overrides[key] = (low == "true") if low in {"true", "false"} else raw
+            overrides[key] = _coerce(raw)
             i += 2
             continue
         overrides[key] = True
@@ -159,9 +172,21 @@ def main() -> None:
     cmd_preview = [sys.executable, "-m", module_name, *argv_tail]
 
     print(f"Config: {config_path}")
-    print("$", " ".join(cmd_preview))
+    if args.env == "multitask_bc":
+        print("$", f"{sys.executable} -m src.plugins.multitask.workflow_bc --config {config_path} --mode play")
+    else:
+        print("$", " ".join(cmd_preview))
     if args.dry_run:
         _print_json_params(params)
+        return
+
+    if args.env == "multitask_bc":
+        from .plugins.multitask.workflow_bc import apply_cli_overrides, run_play_from_config
+
+        cfg = apply_cli_overrides(config, _parse_overrides(rest), section="play") if rest else config
+        if isinstance(cfg, dict):
+            cfg["env"] = args.env
+        run_play_from_config(cfg)
         return
 
     _prevalidate_model_env(args.env, params)
