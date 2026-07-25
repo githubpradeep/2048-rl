@@ -10,19 +10,22 @@ from .generic_dqn_train import train_dqn
 SUPPORTED_ENVS = (
     "2048",
     "breakout",
+    "craftax",
+    "craftax_ppo",
     "flappy",
     "flappy_tabular",
     "fruit",
     "match3",
     "pacman",
     "pong",
+    "pong_actor_critic",
     "shooter",
     "snake",
     "tetris",
     "tetris_afterstate",
     "multitask_bc",
 )
-DQN_ENVS = {"2048", "breakout", "flappy", "fruit", "match3", "pacman", "pong", "shooter", "snake", "tetris"}
+DQN_ENVS = {"2048", "breakout", "craftax", "flappy", "fruit", "match3", "pacman", "pong", "shooter", "snake", "tetris"}
 
 
 def _load_yaml(path: Path) -> dict[str, Any]:
@@ -180,6 +183,33 @@ def main() -> None:
     print(f"Config: {config_path}")
     if args.env == "multitask_bc":
         from .plugins.multitask.workflow_bc import apply_cli_overrides, run_train_from_config
+
+        if args.dry_run:
+            cfg = apply_cli_overrides(config, _parse_overrides(rest), section="train")
+            cfg["env"] = args.env
+            _print_json_params(cfg)
+            return
+        cfg = apply_cli_overrides(config, _parse_overrides(rest), section="train") if rest else config
+        if isinstance(cfg, dict):
+            cfg["env"] = args.env
+        run_train_from_config(cfg)
+        return
+    if args.env == "pong_actor_critic":
+        from .plugins.policy_gradient.actor_critic import apply_cli_overrides, run_train_from_config
+
+        if args.dry_run:
+            cfg = apply_cli_overrides(config, _parse_overrides(rest), section="train")
+            cfg["env"] = args.env
+            _print_json_params(cfg)
+            return
+        cfg = apply_cli_overrides(config, _parse_overrides(rest), section="train") if rest else config
+        if isinstance(cfg, dict):
+            cfg["env"] = args.env
+        run_train_from_config(cfg)
+        return
+    if args.env == "craftax_ppo":
+        from .plugins.policy_gradient.actor_critic import apply_cli_overrides
+        from .plugins.policy_gradient.craftax_ppo import run_train_from_config
 
         if args.dry_run:
             cfg = apply_cli_overrides(config, _parse_overrides(rest), section="train")

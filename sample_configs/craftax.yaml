@@ -1,0 +1,48 @@
+env: craftax
+common:
+  seed: 42
+train:
+  episodes: 5000
+  max-steps: 10000
+  eval-every: 50
+  eval-episodes: 20
+  double-dqn: true
+  dueling: true
+  per: true
+  n-step: 3
+  hidden-sizes: "512,512"
+  lr: 0.0001
+  gamma: 0.995
+  buffer-size: 200000
+  batch-size: 128
+  warmup-steps: 10000
+  train-every: 4
+  target-update: 2000
+  eps-start: 1.0
+  eps-end: 0.1
+  eps-decay-steps: 250000
+  loss: huber
+  huber-delta: 1.0
+  max-grad-norm: 5.0
+  target-clip: 50.0
+  # Dense survival / resource shaping (eval still uses Classic sparse reward).
+  reward-shaping: true
+  survive-bonus: 0.0002
+  death-penalty: 1.0
+  resource-scale: 0.1
+  vital-gain-scale: 0.05
+  low-vital-penalty: 0.01
+  reverse-penalty: 0.02
+  block-reverse-moves: true
+  save-dir: models/craftax
+eval:
+  model: models/craftax/craftax_dqn_best.json
+  episodes: 50
+  max-steps: 10000
+
+play:
+  model: models/craftax/craftax_dqn_best.json
+  mode: pygame
+  delay: 0.35
+  max-steps: 10000
+  block-pixel-size: 48

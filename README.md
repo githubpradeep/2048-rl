@@ -27,6 +27,7 @@ No `gymnasium`. No `stable-baselines3`.
 - `Breakout` (DQN)
 - `Pong` (DQN)
 - `Match-3` (DQN with legal-action masking + cascade engine)
+- `Craftax-Classic` (DQN, pure NumPy port: 17 actions, 1345-d symbolic obs)
 
 ## Docs
 - Framework + 2048 deep dive + multi-game walkthrough: `docs/2048_rl_tutorial.md`
