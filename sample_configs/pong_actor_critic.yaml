@@ -1,0 +1,60 @@
+env: pong_actor_critic
+
+common:
+  seed: 42
+
+train:
+  episodes: 3000
+  gamma: 0.99
+  lr: 0.0005
+  hidden-sizes: "128,128"
+  max-grad-norm: 5.0
+  rollout-steps: 8
+  value-coef: 0.5
+  entropy-coef: 0.01
+  normalize-advantages: true
+  eval-every: 50
+  eval-episodes: 50
+  save-dir: models/pong_actor_critic
+  width: 12
+  height: 16
+  paddle-height: 4
+  paddle-speed: 1
+  opponent-track-prob: 0.85
+  start-lives: 3
+  step-reward: 0.01
+  paddle-hit-reward: 0.05
+  score-reward: 2.0
+  concede-penalty: -2.0
+  max-steps: 1000
+
+eval:
+  model: models/pong_actor_critic/pong_actor_critic_best.json
+  episodes: 100
+  width: 12
+  height: 16
+  paddle-height: 4
+  paddle-speed: 1
+  opponent-track-prob: 0.85
+  start-lives: 3
+  step-reward: 0.01
+  paddle-hit-reward: 0.05
+  score-reward: 2.0
+  concede-penalty: -2.0
+  max-steps: 1000
+
+play:
+  model: models/pong_actor_critic/pong_actor_critic_best.json
+  mode: pygame
+  delay: 0.06
+  width: 12
+  height: 16
+  paddle-height: 4
+  paddle-speed: 1
+  opponent-track-prob: 0.85
+  start-lives: 3
+  step-reward: 0.01
+  paddle-hit-reward: 0.05
+  score-reward: 2.0
+  concede-penalty: -2.0
+  max-steps: 1000

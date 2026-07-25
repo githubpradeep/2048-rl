@@ -13,6 +13,7 @@ from .evals.eval_utils import evaluate_policy
 from .plugins.flappy.env_config import apply_flappy_preset, build_flappy_config_from_args, flappy_model_metadata, write_model_metadata
 from .evals.flappy_eval_utils import evaluate_flappy_policy
 from .games.breakout import BreakoutConfig, BreakoutEnv
+from .games.craftax_classic import CraftaxClassicConfig, CraftaxClassicEnv
 from .games.flappy import FlappyEnv
 from .games.fruit_cutter import FruitCutterConfig, FruitCutterEnv
 from .games.match3 import Match3Config, Match3Env
@@ -33,6 +34,7 @@ from .evals.tetris_eval_utils import evaluate_tetris_policy
 from .evals.fruit_eval_utils import evaluate_fruit_policy
 from .plugins.tetris.expert import choose_expert_action
 from .evals.breakout_eval_utils import evaluate_breakout_policy
+from .evals.craftax_eval_utils import evaluate_craftax_policy
 
 
 @dataclass
@@ -429,6 +431,63 @@ def build_dqn_hooks(env_name: str, params: dict[str, Any], seed: int, episodes: 
         grad_clip = float(_cfg(params, "grad_clip", 5.0))
         target_clip = float(_cfg(params, "target_clip", 30.0))
         return env, TrainHooks(env_name, "tetris_dqn_best.json", "tetris_dqn_final.json", ep_env, ev_env, ev, ev_sum, lambda s: float(s.avg_score), use_legal_masks=True, action_override=_tetris_action_override, target_clip=target_clip if target_clip > 0 else None, optimizer_max_grad_norm=grad_clip), extra
+
+    if env_name == "craftax":
+        map_size = int(_cfg(params, "map_size", 64))
+        max_steps = int(_cfg(params, "max_steps", 10000))
+        cfg = CraftaxClassicConfig(
+            map_size=(map_size, map_size),
+            max_timesteps=max_steps,
+            day_length=int(_cfg(params, "day_length", 300)),
+            always_diamond=bool(_cfg(params, "always_diamond", True)),
+            reward_shaping=bool(_cfg(params, "reward_shaping", True)),
+            survive_bonus=float(_cfg(params, "survive_bonus", 0.0002)),
+            death_penalty=float(_cfg(params, "death_penalty", 1.0)),
+            resource_scale=float(_cfg(params, "resource_scale", 0.1)),
+            vital_gain_scale=float(_cfg(params, "vital_gain_scale", 0.05)),
+            low_vital_penalty=float(_cfg(params, "low_vital_penalty", 0.01)),
+            reverse_penalty=float(_cfg(params, "reverse_penalty", 0.02)),
+            block_reverse_moves=bool(_cfg(params, "block_reverse_moves", True)),
+        )
+        # Eval uses Classic sparse reward so avg_reward matches the published metric.
+        # Keep reverse-move masking so greedy play/eval matches train action set.
+        eval_cfg = CraftaxClassicConfig(
+            map_size=cfg.map_size,
+            max_timesteps=cfg.max_timesteps,
+            day_length=cfg.day_length,
+            always_diamond=cfg.always_diamond,
+            reward_shaping=False,
+            block_reverse_moves=cfg.block_reverse_moves,
+        )
+        env = CraftaxClassicEnv(config=cfg, seed=seed)
+        def ep_env(ep: int): return CraftaxClassicEnv(config=cfg, seed=seed + ep)
+        def ev_env(): return CraftaxClassicEnv(config=eval_cfg, seed=seed + 999)
+        def ev(eval_env, net, n, seed_start):
+            return evaluate_craftax_policy(eval_env, net, episodes=n, seed_start=seed_start, max_steps=max_steps)
+        def ev_sum(stats):
+            return (
+                f"avg_achievements={stats.avg_score:.2f} median={stats.median_score:.2f} "
+                f"avg_steps={stats.avg_steps:.1f} avg_health={stats.avg_health:.2f} avg_reward={stats.avg_reward:.2f}"
+            )
+        return env, TrainHooks(
+            env_name,
+            "craftax_dqn_best.json",
+            "craftax_dqn_final.json",
+            ep_env,
+            ev_env,
+            ev,
+            ev_sum,
+            lambda s: float(s.avg_score),
+            use_legal_masks=True,
+            loss_name=str(_cfg(params, "loss", "huber")),
+            huber_delta=float(_cfg(params, "huber_delta", 1.0)),
+            optimizer_max_grad_norm=float(_cfg(params, "max_grad_norm", 5.0)),
+            target_clip=(
+                float(_cfg(params, "target_clip", 50.0))
+                if float(_cfg(params, "target_clip", 50.0)) > 0
+                else None
+            ),
+        ), extra
 
     raise ValueError(f"Unsupported DQN env: {env_name}")
 

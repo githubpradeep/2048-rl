@@ -10,6 +10,8 @@ from typing import Any
 SUPPORTED_ENVS = (
     "2048",
     "breakout",
+    "craftax",
+    "craftax_ppo",
     "flappy",
     "flappy_heuristic",
     "flappy_tabular",
@@ -17,6 +19,7 @@ SUPPORTED_ENVS = (
     "match3",
     "pacman",
     "pong",
+    "pong_actor_critic",
     "shooter",
     "snake",
     "tetris",
@@ -466,6 +469,46 @@ def _eval_breakout(params: dict[str, Any]) -> None:
     print(f"Clear rate: {100.0 * stats.clear_rate:.2f}%")
 
 
+def _eval_craftax(params: dict[str, Any]) -> None:
+    from .evals.craftax_eval_utils import evaluate_craftax_policy
+    from .games.craftax_classic import CraftaxClassicConfig, CraftaxClassicEnv
+    from .model_env_metadata import validate_model_env_from_params_or_raise
+    from .network import MLPQNetwork
+
+    episodes = int(_cfg(params, "episodes", 50))
+    seed = int(_cfg(params, "seed", 123))
+    max_steps = int(_cfg(params, "max_steps", 10000))
+    map_size = int(_cfg(params, "map_size", 64))
+    model = str(params["model"])
+    env = CraftaxClassicEnv(
+        config=CraftaxClassicConfig(
+            map_size=(map_size, map_size),
+            max_timesteps=max_steps,
+            day_length=int(_cfg(params, "day_length", 300)),
+            always_diamond=bool(_cfg(params, "always_diamond", True)),
+        ),
+        seed=seed,
+    )
+    validate_model_env_from_params_or_raise(
+        model,
+        "craftax",
+        params,
+        allow_mismatch=bool(_cfg(params, "allow_env_mismatch", False)),
+        print_model_env=bool(_cfg(params, "print_model_env", False)),
+    )
+    network = MLPQNetwork.load(model)
+    stats = evaluate_craftax_policy(env, network, episodes=episodes, seed_start=seed, max_steps=max_steps)
+
+    print("Craftax-Classic Evaluation Results")
+    print("---------------------------------")
+    print(f"Episodes: {episodes}")
+    print(f"Average achievements: {stats.avg_score:.3f}")
+    print(f"Median achievements: {stats.median_score:.3f}")
+    print(f"Average steps: {stats.avg_steps:.2f}")
+    print(f"Average health (end): {stats.avg_health:.2f}")
+    print(f"Average episode reward: {stats.avg_reward:.3f}")
+
+
 def _eval_pong(params: dict[str, Any]) -> None:
     from .games.pong import PongConfig, PongEnv
     from .model_env_metadata import validate_model_env_from_params_or_raise
@@ -621,6 +664,7 @@ _RUNNERS = {
     "flappy_tabular": _eval_flappy_tabular,
     "flappy_heuristic": _eval_flappy_heuristic,
     "breakout": _eval_breakout,
+    "craftax": _eval_craftax,
     "pong": _eval_pong,
     "match3": _eval_match3,
     "pacman": _eval_pacman,
@@ -654,6 +698,33 @@ def main() -> None:
     print(f"Config: {config_path}")
     if args.env == "multitask_bc":
         from .plugins.multitask.workflow_bc import apply_cli_overrides, run_eval_from_config
+
+        if args.dry_run:
+            cfg = apply_cli_overrides(config, _parse_overrides(rest), section="eval")
+            cfg["env"] = args.env
+            _print_json_params(cfg)
+            return
+        cfg = apply_cli_overrides(config, _parse_overrides(rest), section="eval") if rest else config
+        if isinstance(cfg, dict):
+            cfg["env"] = args.env
+        run_eval_from_config(cfg)
+        return
+    if args.env == "pong_actor_critic":
+        from .plugins.policy_gradient.actor_critic import apply_cli_overrides, run_eval_from_config
+
+        if args.dry_run:
+            cfg = apply_cli_overrides(config, _parse_overrides(rest), section="eval")
+            cfg["env"] = args.env
+            _print_json_params(cfg)
+            return
+        cfg = apply_cli_overrides(config, _parse_overrides(rest), section="eval") if rest else config
+        if isinstance(cfg, dict):
+            cfg["env"] = args.env
+        run_eval_from_config(cfg)
+        return
+    if args.env == "craftax_ppo":
+        from .plugins.policy_gradient.actor_critic import apply_cli_overrides
+        from .plugins.policy_gradient.craftax_ppo import run_eval_from_config
 
         if args.dry_run:
             cfg = apply_cli_overrides(config, _parse_overrides(rest), section="eval")

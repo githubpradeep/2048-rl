@@ -1,0 +1,42 @@
+env: craftax_ppo
+
+common:
+  seed: 42
+
+train:
+  num-envs: 8
+  horizon: 128
+  num-updates: 2000
+  epochs: 4
+  minibatch-size: 256
+  gamma: 0.995
+  gae-lambda: 0.95
+  clip-eps: 0.2
+  lr: 0.0003
+  hidden-sizes: "512,512"
+  max-grad-norm: 0.5
+  value-coef: 0.5
+  entropy-coef: 0.01
+  normalize-advantages: true
+  eval-every: 25
+  eval-episodes: 20
+  max-steps: 10000
+  map-size: 64
+  # Sparse Classic reward by default (shaping optional).
+  reward-shaping: false
+  block-reverse-moves: true
+  save-dir: models/craftax_ppo
+
+eval:
+  model: models/craftax_ppo/craftax_ppo_best.json
+  episodes: 50
+  max-steps: 10000
+  map-size: 64
+
+play:
+  model: models/craftax_ppo/craftax_ppo_best.json
+  mode: pygame
+  delay: 0.35
+  max-steps: 10000
+  map-size: 64
+  block-pixel-size: 48

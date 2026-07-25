@@ -11,6 +11,8 @@ from typing import Any, Iterator
 PLAY_MODULES = {
     "2048": "src.plugins.playback.play_agent",
     "breakout": "src.plugins.playback.play_breakout_agent",
+    "craftax": "src.plugins.playback.play_craftax_agent",
+    "craftax_ppo": "src.plugins.policy_gradient.craftax_ppo",
     "flappy": "src.plugins.playback.play_flappy_agent",
     "flappy_heuristic": "src.plugins.playback.play_flappy_heuristic",
     "flappy_tabular": "src.plugins.playback.play_flappy_tabular",
@@ -18,6 +20,7 @@ PLAY_MODULES = {
     "match3": "src.plugins.playback.play_match3_agent",
     "pacman": "src.plugins.playback.play_pacman_agent",
     "pong": "src.plugins.playback.play_pong_agent",
+    "pong_actor_critic": "src.plugins.policy_gradient.actor_critic",
     "shooter": "src.plugins.playback.play_shooter_agent",
     "snake": "src.plugins.playback.play_snake_agent",
     "tetris": "src.plugins.playback.play_tetris_agent",
@@ -174,6 +177,10 @@ def main() -> None:
     print(f"Config: {config_path}")
     if args.env == "multitask_bc":
         print("$", f"{sys.executable} -m src.plugins.multitask.workflow_bc --config {config_path} --mode play")
+    elif args.env == "pong_actor_critic":
+        print("$", f"{sys.executable} -m src.plugins.policy_gradient.actor_critic --config {config_path} --mode play")
+    elif args.env == "craftax_ppo":
+        print("$", f"{sys.executable} -m src.plugins.policy_gradient.craftax_ppo --config {config_path} --mode play")
     else:
         print("$", " ".join(cmd_preview))
     if args.dry_run:
@@ -182,6 +189,23 @@ def main() -> None:
 
     if args.env == "multitask_bc":
         from .plugins.multitask.workflow_bc import apply_cli_overrides, run_play_from_config
+
+        cfg = apply_cli_overrides(config, _parse_overrides(rest), section="play") if rest else config
+        if isinstance(cfg, dict):
+            cfg["env"] = args.env
+        run_play_from_config(cfg)
+        return
+    if args.env == "pong_actor_critic":
+        from .plugins.policy_gradient.actor_critic import apply_cli_overrides, run_play_from_config
+
+        cfg = apply_cli_overrides(config, _parse_overrides(rest), section="play") if rest else config
+        if isinstance(cfg, dict):
+            cfg["env"] = args.env
+        run_play_from_config(cfg)
+        return
+    if args.env == "craftax_ppo":
+        from .plugins.policy_gradient.actor_critic import apply_cli_overrides
+        from .plugins.policy_gradient.craftax_ppo import run_play_from_config
 
         cfg = apply_cli_overrides(config, _parse_overrides(rest), section="play") if rest else config
         if isinstance(cfg, dict):

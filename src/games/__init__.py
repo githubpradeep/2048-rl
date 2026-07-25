@@ -1,6 +1,7 @@
 """Collection of game engines for the from-scratch RL arcade."""
 
 from .breakout import BreakoutConfig, BreakoutEnv, BreakoutGame
+from .craftax_classic import CraftaxClassicConfig, CraftaxClassicEnv, CraftaxClassicGame
 from .env2048 import EnvConfig as Game2048EnvConfig, Game2048Env
 from .fruit_cutter import FruitCutterConfig, FruitCutterEnv, FruitCutterGame
 from .flappy import FlappyConfig, FlappyEnv, FlappyGame
@@ -16,6 +17,9 @@ __all__ = [
     "BreakoutConfig",
     "BreakoutEnv",
     "BreakoutGame",
+    "CraftaxClassicConfig",
+    "CraftaxClassicEnv",
+    "CraftaxClassicGame",
     "Game2048",
     "Game2048Env",
     "Game2048EnvConfig",

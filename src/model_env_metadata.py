@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 
-SUPPORTED_GENERIC_ENVS = {"snake", "tetris", "match3", "pacman", "pong", "breakout", "fruit", "shooter"}
+SUPPORTED_GENERIC_ENVS = {"snake", "tetris", "match3", "pacman", "pong", "breakout", "fruit", "shooter", "craftax"}
 
 
 def _read_model_json(path: str | Path) -> dict[str, Any]:
@@ -147,6 +147,15 @@ def runtime_env_config_from_params(env_name: str, params: dict[str, Any]) -> dic
             "spawn_prob": _as_float(params, "spawn_prob", 0.35),
             "max_steps": _as_int(params, "max_steps", 600),
             "start_lives": _as_int(params, "start_lives", 3),
+        }
+
+    if env_name == "craftax":
+        map_size = _as_int(params, "map_size", 64)
+        return {
+            "map_size": map_size,
+            "max_steps": _as_int(params, "max_steps", 10000),
+            "day_length": _as_int(params, "day_length", 300),
+            "always_diamond": _as_bool(params, "always_diamond", True),
         }
 
     return None
