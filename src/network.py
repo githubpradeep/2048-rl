@@ -75,6 +75,24 @@ class AdamOptimizer:
             biases[i] -= self.lr * m_b_hat / (np.sqrt(v_b_hat) + self.eps)
 
 
+def action_effect_grads(
+    logits: np.ndarray,
+    actions: np.ndarray,
+    labels: np.ndarray,
+    grad_scale: np.ndarray,
+    coef: float,
+) -> tuple[np.ndarray, float]:
+    """Binary cross-entropy on the taken action. Label 1 means the observation changed."""
+    batch = logits.shape[0]
+    taken = logits[np.arange(batch), actions]
+    prob = 1.0 / (1.0 + np.exp(-np.clip(taken, -30.0, 30.0)))
+    residual = (prob - labels).astype(np.float32) * np.asarray(grad_scale, dtype=np.float32).reshape(-1) * float(coef)
+    grad = np.zeros_like(logits, dtype=np.float32)
+    grad[np.arange(batch), actions] = residual
+    accuracy = float(np.mean((prob >= 0.5) == (labels >= 0.5)))
+    return grad, accuracy
+
+
 class MLPQNetwork:
     """From-scratch MLP Q-network with manual backprop, NumPy-accelerated."""
 
@@ -85,12 +103,19 @@ class MLPQNetwork:
         hidden_sizes: Tuple[int, ...] = (128, 128),
         seed: int | None = None,
         dueling: bool = False,
+        action_effect: bool = False,
     ) -> None:
         self.input_dim = int(input_dim)
         self.output_dim = int(output_dim)
         self.hidden_sizes = tuple(int(v) for v in hidden_sizes)
         self.dueling = bool(dueling)
+        self.action_effect = bool(action_effect)
+        self.action_effect_coef = 1.0
         self.rng = np.random.default_rng(seed)
+        self.effect_w: np.ndarray | None = None
+        self.effect_b: np.ndarray | None = None
+        self.effect_adam: AdamOptimizer | None = None
+        self.last_effect_acc: float | None = None
 
         # For non-dueling: includes output layer.
         # For dueling: this is the shared trunk only.
@@ -128,6 +153,15 @@ class MLPQNetwork:
             ).astype(np.float32)
             self.advantage_b = np.zeros((1, self.output_dim), dtype=np.float32)
 
+        if self.action_effect:
+            feature_dim = self.hidden_sizes[-1] if self.hidden_sizes else self.input_dim
+            effect_scale = np.sqrt(2.0 / float(feature_dim))
+            self.effect_w = (self.rng.standard_normal((feature_dim, self.output_dim), dtype=np.float32) * effect_scale).astype(
+                np.float32
+            )
+            self.effect_b = np.zeros((1, self.output_dim), dtype=np.float32)
+            self.effect_adam = AdamOptimizer(lr=1e-3)
+
     @staticmethod
     def _as_batch(states: Sequence[Sequence[float]] | np.ndarray) -> np.ndarray:
         arr = np.asarray(states, dtype=np.float32)
@@ -164,6 +198,7 @@ class MLPQNetwork:
             "kind": "non_dueling",
             "activations": activations,
             "pre_activations": pre_activations,
+            "features": activations[-2],
         }
         return current, cache
 
@@ -217,6 +252,59 @@ class MLPQNetwork:
         q_values, _ = self.forward(states)
         return [[float(v) for v in row] for row in q_values.tolist()]
 
+    def predict_action_effects(self, states: Sequence[Sequence[float]] | np.ndarray) -> np.ndarray:
+        """Probability that each action changes the observation. Shape (batch, actions)."""
+        if not self.action_effect or self.effect_w is None or self.effect_b is None:
+            raise RuntimeError("This network has no action-effect head")
+        _, cache = self.forward(states)
+        features = cache["features"]
+        logits = features @ self.effect_w + self.effect_b
+        return (1.0 / (1.0 + np.exp(-np.clip(logits, -30.0, 30.0)))).astype(np.float32)
+
+    def _effect_grads(
+        self,
+        features: np.ndarray,
+        actions_arr: np.ndarray,
+        effect_labels: np.ndarray | None,
+        grad_scale: np.ndarray,
+        effect_coef: float,
+    ) -> tuple[np.ndarray | None, np.ndarray | None, np.ndarray | None]:
+        if not self.action_effect or effect_labels is None or self.effect_w is None or self.effect_b is None:
+            self.last_effect_acc = None
+            return None, None, None
+        labels = np.asarray(effect_labels, dtype=np.float32).reshape(-1)
+        logits = features @ self.effect_w + self.effect_b
+        grad_logits, accuracy = action_effect_grads(logits, actions_arr, labels, grad_scale, effect_coef)
+        self.last_effect_acc = accuracy
+        return grad_logits @ self.effect_w.T, features.T @ grad_logits, np.sum(grad_logits, axis=0, keepdims=True)
+
+    def update_action_effect_head(
+        self,
+        states: Sequence[Sequence[float]] | np.ndarray,
+        actions: Sequence[int] | np.ndarray,
+        effect_labels: Sequence[float] | np.ndarray,
+        sample_weights: Sequence[float] | np.ndarray | None = None,
+        coef: float = 1.0,
+    ) -> float | None:
+        """Fit only the effect head. The shared features stay fixed."""
+        if not self.action_effect or self.effect_adam is None:
+            return None
+        _, cache = self.forward(states)
+        features = cache["features"]
+        actions_arr = np.asarray(actions, dtype=np.int64).reshape(-1)
+        batch = features.shape[0]
+        if sample_weights is None:
+            grad_scale = np.full((batch,), 1.0 / batch, dtype=np.float32)
+        else:
+            weights = np.asarray(sample_weights, dtype=np.float32).reshape(-1)
+            total = float(np.sum(weights))
+            grad_scale = np.full((batch,), 1.0 / batch, dtype=np.float32) if total <= 0.0 else (weights / total).astype(np.float32)
+        _, grad_w, grad_b = self._effect_grads(features, actions_arr, np.asarray(effect_labels), grad_scale, coef)
+        if grad_w is None or grad_b is None or self.effect_w is None or self.effect_b is None:
+            return None
+        self.effect_adam.step([self.effect_w], [self.effect_b], [grad_w], [grad_b])
+        return self.last_effect_acc
+
     def _parameter_lists(self) -> tuple[List[np.ndarray], List[np.ndarray]]:
         weight_list = [w for w in self.weights]
         bias_list = [b for b in self.biases]
@@ -240,6 +328,8 @@ class MLPQNetwork:
         huber_delta: float,
         sample_weights: np.ndarray | None = None,
         return_td_errors: bool = False,
+        effect_labels: np.ndarray | None = None,
+        effect_coef: float = 1.0,
     ) -> tuple[float, float] | tuple[float, float, np.ndarray]:
         activations: List[np.ndarray] = cache["activations"]
         pre_activations: List[np.ndarray] = cache["pre_activations"]
@@ -290,6 +380,11 @@ class MLPQNetwork:
         grad_w = [np.zeros_like(w, dtype=np.float32) for w in self.weights]
         grad_b = [np.zeros_like(b, dtype=np.float32) for b in self.biases]
 
+        effect_feat, effect_gw, effect_gb = self._effect_grads(
+            activations[-2], actions_arr, effect_labels, grad_scale, effect_coef
+        )
+        last_layer = len(self.weights) - 1
+
         grad = grad_output
         for li in reversed(range(len(self.weights))):
             a_prev = activations[li]
@@ -298,9 +393,18 @@ class MLPQNetwork:
 
             if li > 0:
                 grad = grad @ self.weights[li].T
+                if li == last_layer and effect_feat is not None:
+                    grad = grad + effect_feat
                 grad *= self._relu_grad(pre_activations[li - 1])
 
-        optimizer.step(self.weights, self.biases, grad_w, grad_b)
+        step_w = list(self.weights)
+        step_b = list(self.biases)
+        if effect_gw is not None and effect_gb is not None and self.effect_w is not None and self.effect_b is not None:
+            step_w.append(self.effect_w)
+            step_b.append(self.effect_b)
+            grad_w.append(effect_gw)
+            grad_b.append(effect_gb)
+        optimizer.step(step_w, step_b, grad_w, grad_b)
         if return_td_errors:
             return loss_value, td_abs_mean, td_abs.astype(np.float32)
         return loss_value, td_abs_mean
@@ -316,6 +420,8 @@ class MLPQNetwork:
         huber_delta: float,
         sample_weights: np.ndarray | None = None,
         return_td_errors: bool = False,
+        effect_labels: np.ndarray | None = None,
+        effect_coef: float = 1.0,
     ) -> tuple[float, float] | tuple[float, float, np.ndarray]:
         batch_size = q_values.shape[0]
 
@@ -377,6 +483,11 @@ class MLPQNetwork:
         grad_advantage_b = np.sum(grad_advantage, axis=0, keepdims=True)
 
         grad_features = grad_value @ self.value_w.T + grad_advantage @ self.advantage_w.T
+        effect_feat, effect_gw, effect_gb = self._effect_grads(
+            features, actions_arr, effect_labels, grad_scale, effect_coef
+        )
+        if effect_feat is not None:
+            grad_features = grad_features + effect_feat
 
         grad_trunk_w = [np.zeros_like(w, dtype=np.float32) for w in self.weights]
         grad_trunk_b = [np.zeros_like(b, dtype=np.float32) for b in self.biases]
@@ -394,6 +505,11 @@ class MLPQNetwork:
         param_b = [*self.biases, self.value_b, self.advantage_b]
         grad_w = [*grad_trunk_w, grad_value_w, grad_advantage_w]
         grad_b = [*grad_trunk_b, grad_value_b, grad_advantage_b]
+        if effect_gw is not None and effect_gb is not None and self.effect_w is not None and self.effect_b is not None:
+            param_w.append(self.effect_w)
+            param_b.append(self.effect_b)
+            grad_w.append(effect_gw)
+            grad_b.append(effect_gb)
 
         optimizer.step(param_w, param_b, grad_w, grad_b)
         if return_td_errors:
@@ -410,10 +526,13 @@ class MLPQNetwork:
         huber_delta: float = 1.0,
         sample_weights: Sequence[float] | np.ndarray | None = None,
         return_td_errors: bool = False,
+        effect_labels: Sequence[float] | np.ndarray | None = None,
+        effect_coef: float = 1.0,
     ) -> Tuple[float, float] | Tuple[float, float, np.ndarray]:
         actions_arr = np.asarray(actions, dtype=np.int64)
         targets_arr = np.asarray(targets, dtype=np.float32)
         sample_weights_arr = None if sample_weights is None else np.asarray(sample_weights, dtype=np.float32)
+        effect_arr = None if effect_labels is None else np.asarray(effect_labels, dtype=np.float32)
 
         q_values, cache = self.forward(states)
         if self.dueling:
@@ -427,6 +546,8 @@ class MLPQNetwork:
                 huber_delta=huber_delta,
                 sample_weights=sample_weights_arr,
                 return_td_errors=return_td_errors,
+                effect_labels=effect_arr,
+                effect_coef=effect_coef,
             )
         return self._train_batch_non_dueling(
             q_values,
@@ -438,6 +559,8 @@ class MLPQNetwork:
             huber_delta=huber_delta,
             sample_weights=sample_weights_arr,
             return_td_errors=return_td_errors,
+            effect_labels=effect_arr,
+            effect_coef=effect_coef,
         )
 
     def copy_from(self, other: "MLPQNetwork") -> None:
@@ -461,6 +584,14 @@ class MLPQNetwork:
             self.advantage_w = other.advantage_w.copy()
             self.advantage_b = other.advantage_b.copy()
 
+        if self.action_effect or other.action_effect:
+            if not (self.action_effect and other.action_effect):
+                raise ValueError("Network architectures do not match (action effect head differs)")
+            assert self.effect_w is not None and self.effect_b is not None
+            assert other.effect_w is not None and other.effect_b is not None
+            self.effect_w = other.effect_w.copy()
+            self.effect_b = other.effect_b.copy()
+
     def save(self, path: str | Path) -> None:
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -470,7 +601,11 @@ class MLPQNetwork:
             "output_dim": self.output_dim,
             "hidden_sizes": list(self.hidden_sizes),
             "dueling": self.dueling,
+            "action_effect": self.action_effect,
         }
+        if self.action_effect and self.effect_w is not None and self.effect_b is not None:
+            payload["effect_w"] = self.effect_w.tolist()
+            payload["effect_b"] = self.effect_b.tolist()
 
         if self.dueling:
             assert self.value_w is not None and self.value_b is not None
@@ -492,6 +627,7 @@ class MLPQNetwork:
     def load(cls, path: str | Path) -> "MLPQNetwork":
         payload = json.loads(Path(path).read_text(encoding="utf-8"))
         dueling = bool(payload.get("dueling", False))
+        action_effect = bool(payload.get("action_effect", False))
 
         network = cls(
             input_dim=int(payload["input_dim"]),
@@ -499,6 +635,7 @@ class MLPQNetwork:
             hidden_sizes=tuple(int(v) for v in payload["hidden_sizes"]),
             seed=0,
             dueling=dueling,
+            action_effect=action_effect,
         )
 
         if dueling:
@@ -518,5 +655,9 @@ class MLPQNetwork:
                 network.weights[i] = np.asarray(w, dtype=np.float32)
             for i, b in enumerate(payload["biases"]):
                 network.biases[i] = np.asarray(b, dtype=np.float32)
+
+        if action_effect:
+            network.effect_w = np.asarray(payload["effect_w"], dtype=np.float32)
+            network.effect_b = np.asarray(payload["effect_b"], dtype=np.float32)
 
         return network

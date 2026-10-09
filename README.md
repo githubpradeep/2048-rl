@@ -14,6 +14,7 @@ No `gymnasium`. No `stable-baselines3`.
 - Custom Adam optimizer (`src/network.py`)
 - Replay buffer with optional legal-action masks (`src/replay_buffer.py`)
 - DQN / Double DQN / Dueling options (game-dependent)
+- Dust activation-space gradients for the DQN update (`src/dust.py`). Mono-Forward local layer losses (`src/mono_forward.py`). EGGROLL remains available (`src/eggroll.py`)
 - Evaluation scripts + autoplay demos (terminal + pygame)
 
 ### Games (current)
@@ -84,6 +85,9 @@ python -m unittest discover -s tests -v
 
 ### Shared RL infrastructure
 - `src/network.py`: NumPy MLP Q-network + Adam optimizer
+- `src/mono_forward.py`: Mono-Forward layer-local TD learning
+- `src/dust.py`: Dust activation-space gradient estimate
+- `src/eggroll.py`: gradient-free EGGROLL optimizer (low-rank ES)
 - `src/replay_buffer.py`: replay buffer (supports legal-action masks)
 - `src/train.py`: generic trainer
 - `src/eval.py`: generic evaluator
@@ -345,6 +349,69 @@ python -m src.train pong --episodes 3000 --double-dqn --dueling --save-dir model
 python -m src.eval --env pong --model models/pong_generic/pong_dqn_best.json --episodes 200
 python -m src.play --env pong --config sample_configs/pong.yaml
 ```
+
+## Training with Dust (activation-space search)
+
+Pass `--optimizer dust` to keep the DQN loop (replay, target network,
+Double DQN, PER, n-step, epsilon-greedy) and replace the backprop step with
+[Dust](https://qlabs.sh/research/dust). Each update adds noise to one linear
+layer's outputs, scores that noise by the change in TD loss, and gives Adam
+the resulting gradient. `sample_configs/pong_dust.yaml` matches the Adam Pong
+recipe aside from that update.
+
+```bash
+python -m src.train --env pong --config sample_configs/pong_dust.yaml
+python -m src.eval --env pong --model models/pong_dust/pong_dqn_best.json --episodes 200
+python -m src.play --env pong --config sample_configs/pong_dust.yaml
+```
+
+Snake uses the same update, on the feature-state curriculum from `sample_configs/snake.yaml`:
+
+```bash
+python -m src.train --env snake --config sample_configs/snake_dust.yaml
+python -m src.play --env snake --config sample_configs/snake_dust.yaml
+```
+
+## Training with Mono-Forward (local layer losses)
+
+`--optimizer mono_forward` keeps the DQN loop and trains each hidden layer from its own readout on the TD target. The error stops at that layer. Eval and play use the last layer's Q-values. `sample_configs/snake_mono.yaml` is the Snake feature curriculum with this update.
+
+```bash
+python -m src.train --env snake --config sample_configs/snake_mono.yaml
+python -m src.play --env snake --config sample_configs/snake_mono.yaml
+```
+
+- `dust_population` (default 32) — noise draws per layer. Each draw jitters every row of the minibatch.
+- `dust_sigma` (default 0.1) — noise scale as a fraction of the layer's pre-activation standard deviation.
+- `lr` — Adam step size on the Dust gradient. The Pong config uses `0.001`.
+
+## Training with EGGROLL (gradient-free)
+
+Pass `--optimizer eggroll` to keep the same DQN loop and replace backprop with
+[EGGROLL](https://arxiv.org/abs/2511.16652). Each update perturbs the
+Q-network weights, scores every copy by TD loss on the same minibatch, and
+gives that direction to Adam. `sample_configs/pong_eggroll.yaml` matches the
+Adam Pong recipe aside from that update.
+
+```bash
+python -m src.train --env pong --config sample_configs/pong_eggroll.yaml
+python -m src.eval --env pong --model models/pong_eggroll_dqn/pong_dqn_best.json --episodes 200
+python -m src.play --env pong --config sample_configs/pong_eggroll.yaml
+```
+
+`eggroll_objective: return` switches to the paper's episode-return search
+instead of TD loss. That search does not use the replay buffer.
+
+Key knobs (made consistent across YAML/CLI):
+
+- `eggroll_update_rule` — `adam` (used for DQN) applies the search direction with Adam. `mean` applies `lr * mean_i(w_i E_i)` directly.
+- `eggroll_rank` (default 1) — perturbation width. With antithetic pairs the update spans `(population / 2) * rank` directions.
+- `eggroll_population` (default 32) — perturbed networks scored per minibatch.
+- `eggroll_sigma` (default 0.1) — radius of perturbations.
+- `eggroll_lr` — Adam step size when `eggroll_update_rule` is `adam` (the Pong config uses `0.001`, the same scale as the Adam trainer). For `mean`, this multiplies the ES average.
+- `eggroll_fitness_shaping` — `standardized` (default) | `centered` | `rank` | `raw`.
+- `eggroll_antithetic` — mirror every perturbation to halve estimator variance.
+- `eggroll_normalize_layer_updates` — used by the `mean` rule. Caps each tensor at `lr` times its own norm. It does not scale a weak estimate up to that cap.
 
 ## Important compatibility notes
 

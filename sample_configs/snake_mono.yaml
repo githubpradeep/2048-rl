@@ -1,0 +1,33 @@
+env: snake
+common:
+  seed: 42
+train:
+  state-mode: features
+  episodes: 5000
+  curriculum-grid-sizes: "6,8,10"
+  grid-size: 10
+  double-dqn: true
+  dueling: false
+  per: true
+  n-step: 3
+  hidden-sizes: "128,128"
+  lr: 0.0003
+  eps-decay-steps: 40000
+  eval-every: 50
+  eval-episodes: 50
+  max-steps: 1200
+  save-dir: models/snake_mono
+  # Each hidden layer fits the TD target through its own readout.
+  # The played Q-values are the last layer, with no backward pass through the stack.
+  optimizer: mono_forward
+  # One extra score per action: did that action change the observation?
+  action-effect: true
+eval:
+  model: models/snake_mono/snake_dqn_best.json
+  episodes: 200
+  grid-size: 10
+  state-mode: features
+play:
+  model: models/snake_mono/snake_dqn_best.json
+  mode: pygame
+  delay: 0.06

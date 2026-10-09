@@ -1,0 +1,31 @@
+env: pong
+common:
+  seed: 42
+train:
+  episodes: 3000
+  eval-every: 50
+  eval-episodes: 50
+  double-dqn: true
+  dueling: true
+  per: true
+  n-step: 3
+  save-dir: models/pong_eggroll_dqn
+  # Same DQN targets as the Adam Pong run. EGGROLL replaces backprop:
+  # the population is scored by TD loss, and Adam applies that direction.
+  optimizer: eggroll
+  eggroll_objective: td
+  eggroll_update_rule: adam
+  eggroll_rank: 4
+  eggroll_population: 32
+  eggroll_sigma: 0.05
+  eggroll_lr: 0.001
+  eggroll_fitness_shaping: standardized
+  eggroll_antithetic: true
+  eggroll_sigma_mode: relative
+eval:
+  model: models/pong_eggroll_dqn/pong_dqn_best.json
+  episodes: 200
+play:
+  model: models/pong_eggroll_dqn/pong_dqn_best.json
+  mode: pygame
+  delay: 0.06

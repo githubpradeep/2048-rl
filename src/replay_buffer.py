@@ -15,6 +15,7 @@ class Batch:
     next_legal_masks: np.ndarray | None = None
     indices: np.ndarray | None = None
     weights: np.ndarray | None = None
+    changed: np.ndarray | None = None
 
 
 class ReplayBuffer:
@@ -29,6 +30,7 @@ class ReplayBuffer:
         self.rewards = np.zeros(capacity, dtype=np.float32)
         self.next_states = np.zeros((capacity, state_dim), dtype=np.float32)
         self.dones = np.zeros(capacity, dtype=np.float32)
+        self.changed = np.zeros(capacity, dtype=np.float32)
         self.next_legal_masks = (
             np.zeros((capacity, action_dim), dtype=np.float32) if action_dim is not None else None
         )
@@ -44,12 +46,16 @@ class ReplayBuffer:
         next_state: np.ndarray,
         done: bool,
         next_legal_actions: list[int] | np.ndarray | None = None,
+        changed: float | None = None,
     ) -> None:
         self.states[self.ptr] = state
         self.actions[self.ptr] = action
         self.rewards[self.ptr] = reward
         self.next_states[self.ptr] = next_state
         self.dones[self.ptr] = float(done)
+        if changed is None:
+            changed = float(np.max(np.abs(np.asarray(state, dtype=np.float32) - np.asarray(next_state, dtype=np.float32))) > 1e-5)
+        self.changed[self.ptr] = float(changed)
         if self.next_legal_masks is not None:
             mask = self.next_legal_masks[self.ptr]
             mask.fill(0.0)
@@ -75,6 +81,7 @@ class ReplayBuffer:
             next_legal_masks=self.next_legal_masks[idx] if self.next_legal_masks is not None else None,
             indices=idx.astype(np.int64),
             weights=None,
+            changed=self.changed[idx],
         )
 
     def __len__(self) -> int:
@@ -98,9 +105,10 @@ class PrioritizedReplayBuffer(ReplayBuffer):
         next_state: np.ndarray,
         done: bool,
         next_legal_actions: list[int] | np.ndarray | None = None,
+        changed: float | None = None,
     ) -> None:
         insert_idx = self.ptr
-        super().add(state, action, reward, next_state, done, next_legal_actions=next_legal_actions)
+        super().add(state, action, reward, next_state, done, next_legal_actions=next_legal_actions, changed=changed)
         self.priorities[insert_idx] = float(self.max_priority)
 
     def sample(self, batch_size: int, rng: np.random.Generator, beta: float = 0.4) -> Batch:
@@ -132,6 +140,7 @@ class PrioritizedReplayBuffer(ReplayBuffer):
             next_legal_masks=self.next_legal_masks[idx] if self.next_legal_masks is not None else None,
             indices=idx,
             weights=np.asarray(weights, dtype=np.float32),
+            changed=self.changed[idx],
         )
 
     def update_priorities(self, indices: np.ndarray, priorities: np.ndarray, eps: float = 1e-6) -> None:

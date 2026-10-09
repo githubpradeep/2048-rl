@@ -1,0 +1,25 @@
+env: pong
+common:
+  seed: 42
+train:
+  episodes: 3000
+  eval-every: 50
+  eval-episodes: 50
+  double-dqn: true
+  dueling: true
+  per: true
+  n-step: 3
+  save-dir: models/pong_dust
+  # Same DQN targets as the Adam Pong run. Dust replaces backprop:
+  # each layer's outputs are jittered, and Adam steps the resulting gradient.
+  optimizer: dust
+  dust_population: 32
+  dust_sigma: 0.1
+  lr: 0.001
+eval:
+  model: models/pong_dust/pong_dqn_best.json
+  episodes: 200
+play:
+  model: models/pong_dust/pong_dqn_best.json
+  mode: pygame
+  delay: 0.06

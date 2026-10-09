@@ -10,6 +10,9 @@ import numpy as np
 
 from .games.env2048 import EnvConfig, Game2048Env
 from .evals.eval_utils import evaluate_policy
+from .dust import DustOptimizer, dust_config_from_params
+from .eggroll import EggrollOptimizer, eggroll_config_from_params, rollout_population
+from .mono_forward import MonoForwardQNetwork, MonoForwardTrainer
 from .plugins.flappy.env_config import apply_flappy_preset, build_flappy_config_from_args, flappy_model_metadata, write_model_metadata
 from .evals.flappy_eval_utils import evaluate_flappy_policy
 from .games.breakout import BreakoutConfig, BreakoutEnv
@@ -68,6 +71,7 @@ class _StepTransition:
     next_state: np.ndarray
     done: bool
     next_legal_actions: list[int] | None
+    changed: float = 1.0
 
 
 class NStepAccumulator:
@@ -97,6 +101,7 @@ class NStepAccumulator:
             next_state=next_state,
             done=bool(done or force_done),
             next_legal_actions=next_legal,
+            changed=float(first.changed),
         )
         self.buf.popleft()
         return out
@@ -137,6 +142,31 @@ def parse_int_list(raw: str | None) -> list[int]:
         return []
     values = [v.strip() for v in str(raw).split(",") if v.strip()]
     return [int(v) for v in values]
+
+
+def _load_q_weights(online: MLPQNetwork, path: str | Path) -> None:
+    loaded = MLPQNetwork.load(path)
+    if loaded.dueling != online.dueling or len(loaded.weights) != len(online.weights):
+        raise ValueError(f"Checkpoint architecture does not match this run: {path}")
+    for i, weight in enumerate(loaded.weights):
+        if tuple(weight.shape) != tuple(online.weights[i].shape) or tuple(loaded.biases[i].shape) != tuple(online.biases[i].shape):
+            raise ValueError(f"Checkpoint layer {i} shape does not match this run: {path}")
+        online.weights[i] = np.asarray(weight, dtype=np.float32)
+        online.biases[i] = np.asarray(loaded.biases[i], dtype=np.float32)
+    if online.dueling:
+        assert online.value_w is not None and online.value_b is not None
+        assert online.advantage_w is not None and online.advantage_b is not None
+        assert loaded.value_w is not None and loaded.value_b is not None
+        assert loaded.advantage_w is not None and loaded.advantage_b is not None
+        online.value_w = np.asarray(loaded.value_w, dtype=np.float32)
+        online.value_b = np.asarray(loaded.value_b, dtype=np.float32)
+        online.advantage_w = np.asarray(loaded.advantage_w, dtype=np.float32)
+        online.advantage_b = np.asarray(loaded.advantage_b, dtype=np.float32)
+    if online.action_effect and loaded.action_effect and online.effect_w is not None and loaded.effect_w is not None:
+        if tuple(loaded.effect_w.shape) != tuple(online.effect_w.shape):
+            raise ValueError(f"Checkpoint action-effect head does not match this run: {path}")
+        online.effect_w = np.asarray(loaded.effect_w, dtype=np.float32)
+        online.effect_b = np.asarray(loaded.effect_b, dtype=np.float32)
 
 
 def epsilon_by_step(step: int, start: float, end: float, decay_steps: int) -> float:
@@ -492,6 +522,64 @@ def build_dqn_hooks(env_name: str, params: dict[str, Any], seed: int, episodes: 
     raise ValueError(f"Unsupported DQN env: {env_name}")
 
 
+def _train_eggroll_on_returns(
+    hooks: TrainHooks,
+    online: MLPQNetwork,
+    optimizer: EggrollOptimizer,
+    seed: int,
+    generations: int,
+    max_steps: int,
+    save_dir: Path,
+    eval_every: int,
+    eval_episodes: int,
+) -> None:
+    """OpenAI-ES / EGGROLL control loop: fitness is the episode return.
+
+    One generation perturbs the mean network, plays one full episode with each
+    member, and steps the mean toward the perturbations that scored higher.
+    Eval uses the unperturbed network, which is the mean policy in the paper.
+    """
+    population = int(optimizer.config.population)
+    use_masks = bool(hooks.use_legal_masks)
+    best_eval = -float("inf")
+    report = optimizer.memory_report(online)
+    print(
+        f"EGGROLL return search | rank={report['rank']} pop={population} "
+        f"sigma={optimizer.current_sigma():.4g} lr={optimizer.current_lr():.4g} | "
+        f"fitness = episode return | generations={generations}"
+    )
+    for generation in range(1, generations + 1):
+        envs = [hooks.build_episode_env(generation * population + index) for index in range(population)]
+        seeds = [seed + generation * population + index for index in range(population)]
+        optimizer.sample_population(online)
+        returns, infos = rollout_population(online, optimizer, envs, seeds, max_steps, use_legal_masks=use_masks)
+        optimizer.apply_fitness(online, returns)
+        scores = [float(info.get("score", 0.0)) for info in infos]
+        print(
+            f"gen={generation:4d} mean_return={float(np.mean(returns)):8.3f} "
+            f"max_return={float(np.max(returns)):8.3f} "
+            f"mean_score={float(np.mean(scores)):6.2f} max_score={float(np.max(scores)):6.2f}"
+        )
+        if generation % eval_every == 0 or generation == generations:
+            eval_env = hooks.build_eval_env()
+            stats = hooks.eval_once(eval_env, online, eval_episodes, seed + 7000 + generation)
+            print(f"  eval: {hooks.eval_summary(stats)}")
+            metric = hooks.eval_metric(stats)
+            if metric > best_eval:
+                best_eval = metric
+                best_path = save_dir / hooks.save_best_name
+                online.save(best_path)
+                if hooks.write_metadata is not None:
+                    hooks.write_metadata(best_path)
+                print(f"  saved new best checkpoint: {best_path}")
+
+    final_path = save_dir / hooks.save_final_name
+    online.save(final_path)
+    if hooks.write_metadata is not None:
+        hooks.write_metadata(final_path)
+    print(f"Training complete. Final model saved to: {final_path}")
+
+
 def train_dqn(env_name: str, params: dict[str, Any]) -> None:
     episodes = int(_cfg(params, "episodes", 1000))
     max_steps = int(_cfg(params, "max_steps", 1000))
@@ -522,7 +610,8 @@ def train_dqn(env_name: str, params: dict[str, Any]) -> None:
     per_priority_eps = float(_cfg(params, "per_priority_eps", 1e-6))
 
     rng = np.random.default_rng(seed)
-    env0, hooks, extra = build_dqn_hooks(env_name, params, seed, episodes)
+    curriculum_episodes = int(_cfg(params, "curriculum_episodes", episodes))
+    env0, hooks, extra = build_dqn_hooks(env_name, params, seed, curriculum_episodes)
     if hooks.write_metadata is None:
         generic_metadata = dqn_model_metadata_from_params(env_name, params)
         if generic_metadata is not None:
@@ -531,11 +620,75 @@ def train_dqn(env_name: str, params: dict[str, Any]) -> None:
             hooks.write_metadata = _write_generic_metadata
     state_dim = int(env0.reset(seed=seed).shape[0])
 
-    online = MLPQNetwork(input_dim=state_dim, output_dim=env0.action_size, hidden_sizes=hidden_sizes, seed=seed, dueling=dueling)
-    target = MLPQNetwork(input_dim=state_dim, output_dim=env0.action_size, hidden_sizes=hidden_sizes, seed=seed + 1, dueling=dueling)
-    target.copy_from(online)
+    optimizer_name = str(_cfg(params, "optimizer", "adam")).lower()
+    use_mono = optimizer_name in ("mono", "mono_forward", "monoforward")
+    net_dueling = False if use_mono else dueling
+    action_effect = bool(_cfg(params, "action_effect", True))
+    action_effect_coef = float(_cfg(params, "action_effect_coef", 1.0))
+    if use_mono:
+        online: MLPQNetwork = MonoForwardQNetwork(
+            input_dim=state_dim,
+            output_dim=env0.action_size,
+            hidden_sizes=tuple(hidden_sizes),
+            seed=seed,
+            action_effect=action_effect,
+        )
+    else:
+        online = MLPQNetwork(
+            input_dim=state_dim,
+            output_dim=env0.action_size,
+            hidden_sizes=hidden_sizes,
+            seed=seed,
+            dueling=net_dueling,
+            action_effect=action_effect,
+        )
+    online.action_effect_coef = action_effect_coef
+    if online.effect_adam is not None:
+        online.effect_adam.lr = lr
+        online.effect_adam.max_grad_norm = hooks.optimizer_max_grad_norm
+    eggroll_objective = str(_cfg(params, "eggroll_objective", "td")).lower()
+    if optimizer_name == "eggroll" and eggroll_objective == "return":
+        _train_eggroll_on_returns(
+            hooks,
+            online,
+            EggrollOptimizer(eggroll_config_from_params(params)),
+            seed,
+            episodes,
+            max_steps,
+            save_dir,
+            eval_every,
+            eval_episodes,
+        )
+        return
+    if optimizer_name == "eggroll":
+        if eggroll_objective != "td":
+            raise ValueError(f"Unsupported eggroll_objective: {eggroll_objective!r} (expected 'td' or 'return')")
+        optimizer: AdamOptimizer | EggrollOptimizer | DustOptimizer | MonoForwardTrainer = EggrollOptimizer(eggroll_config_from_params(params))
+    elif optimizer_name == "dust":
+        optimizer = DustOptimizer(dust_config_from_params(params), max_grad_norm=hooks.optimizer_max_grad_norm)
+    elif use_mono:
+        optimizer = MonoForwardTrainer(online, lr=lr, max_grad_norm=hooks.optimizer_max_grad_norm)  # type: ignore[arg-type]
+    elif optimizer_name == "adam":
+        optimizer = AdamOptimizer(lr=lr, max_grad_norm=hooks.optimizer_max_grad_norm)
+    else:
+        raise ValueError(f"Unsupported optimizer: {optimizer_name!r} (expected 'adam', 'dust', 'mono_forward', or 'eggroll')")
 
-    optimizer = AdamOptimizer(lr=lr, max_grad_norm=hooks.optimizer_max_grad_norm)
+    target = MLPQNetwork(
+        input_dim=state_dim,
+        output_dim=env0.action_size,
+        hidden_sizes=hidden_sizes,
+        seed=seed + 1,
+        dueling=net_dueling,
+        action_effect=action_effect,
+    )
+    target.copy_from(online)
+    resume_from = _cfg(params, "resume", None)
+    start_episode = int(_cfg(params, "start_episode", 1))
+    if resume_from:
+        _load_q_weights(online, str(resume_from))
+        target.copy_from(online)
+        if isinstance(optimizer, MonoForwardTrainer):
+            optimizer.hidden_weight_freeze_steps = int(_cfg(params, "projection_warmup_steps", 1000))
     if per:
         buffer: ReplayBuffer | PrioritizedReplayBuffer = PrioritizedReplayBuffer(
             capacity=buffer_size,
@@ -546,14 +699,46 @@ def train_dqn(env_name: str, params: dict[str, Any]) -> None:
     else:
         buffer = ReplayBuffer(capacity=buffer_size, state_dim=state_dim, action_dim=(env0.action_size if hooks.use_legal_masks else None))
 
-    global_step = 0
+    if resume_from and "start_step" not in params:
+        global_step = eps_decay_steps
+    else:
+        global_step = int(_cfg(params, "start_step", 0))
     best_eval = -float("inf")
+    if resume_from:
+        if "resume_score" in params:
+            best_eval = float(params["resume_score"])
+        else:
+            resume_stats = hooks.eval_once(hooks.build_eval_env(), online, eval_episodes, seed + 7000)
+            best_eval = float(hooks.eval_metric(resume_stats))
+            print(f"  resume eval: {hooks.eval_summary(resume_stats)}")
     print(
-        f"Training {env_name} | double_dqn={double_dqn} dueling={dueling} hidden={hidden_sizes} "
-        f"n_step={n_step} per={per}"
+        f"Training {env_name} | double_dqn={double_dqn} dueling={net_dueling} hidden={hidden_sizes} "
+        f"n_step={n_step} per={per} optimizer={optimizer_name} action_effect={action_effect}"
     )
+    if isinstance(optimizer, EggrollOptimizer):
+        report = optimizer.memory_report(online)
+        print(
+            f"EGGROLL TD loss | rank={report['rank']} pop={report['population']} "
+            f"sigma={optimizer.current_sigma():.4g} lr={optimizer.current_lr():.4g} "
+            f"update={optimizer.config.update_rule}"
+        )
+    if isinstance(optimizer, DustOptimizer):
+        print(
+            f"Dust activation search | draws={optimizer.config.population} "
+            f"sigma={optimizer.config.sigma:.4g} lr={optimizer.config.lr:.4g}"
+        )
+    if isinstance(optimizer, MonoForwardTrainer):
+        print(f"Mono-Forward local TD | layers={len(online.weights)} lr={optimizer.lr:.4g}")
+    if resume_from:
+        freeze = optimizer.hidden_weight_freeze_steps if isinstance(optimizer, MonoForwardTrainer) else 0
+        print(
+            f"Resumed weights from {resume_from} | episodes {start_episode}-{episodes} "
+            f"global_step={global_step} best_eval={best_eval:.2f} readout_warmup={freeze}"
+        )
+    if start_episode < 1 or start_episode > episodes:
+        raise ValueError(f"start_episode must be in 1..episodes (got {start_episode} for {episodes} episodes)")
 
-    for episode in range(1, episodes + 1):
+    for episode in range(start_episode, episodes + 1):
         env = hooks.build_episode_env(episode)
         state = env.reset(seed=seed + episode)
         done = False
@@ -561,6 +746,7 @@ def train_dqn(env_name: str, params: dict[str, Any]) -> None:
         episode_reward = 0.0
         losses: list[float] = []
         td_abs_vals: list[float] = []
+        effect_accs: list[float] = []
         trackers = hooks.on_episode_start(env) if hooks.on_episode_start else {}
         info: dict[str, Any] = {}
         nstep_acc = NStepAccumulator(n_step=n_step)
@@ -583,21 +769,25 @@ def train_dqn(env_name: str, params: dict[str, Any]) -> None:
                 reward_val = float(hooks.reward_shaper(np.asarray(state, dtype=np.float32), np.asarray(next_state, dtype=np.float32), reward_val, info))
 
             next_legal = env.legal_actions() if hooks.use_legal_masks else None
+            state_arr = np.asarray(state, dtype=np.float32)
+            next_arr = np.asarray(next_state, dtype=np.float32)
+            changed = float(np.max(np.abs(state_arr - next_arr)) > 1e-5)
             ready = nstep_acc.append_and_pop_ready(
                 _StepTransition(
-                    state=np.asarray(state, dtype=np.float32).copy(),
+                    state=state_arr.copy(),
                     action=int(action),
                     reward=float(reward_val),
-                    next_state=np.asarray(next_state, dtype=np.float32).copy(),
+                    next_state=next_arr.copy(),
                     done=bool(done),
                     next_legal_actions=(list(next_legal) if next_legal is not None else None),
+                    changed=changed,
                 ),
                 gamma=gamma,
                 flush=bool(done),
                 force_terminal_flush=False,
             )
             for t in ready:
-                buffer.add(t.state, t.action, t.reward, t.next_state, t.done, next_legal_actions=t.next_legal_actions)
+                buffer.add(t.state, t.action, t.reward, t.next_state, t.done, next_legal_actions=t.next_legal_actions, changed=t.changed)
 
             if hooks.on_step is not None:
                 hooks.on_step(trackers, info)
@@ -636,7 +826,41 @@ def train_dqn(env_name: str, params: dict[str, Any]) -> None:
                 td_target = batch.rewards + gamma_bootstrap * (1.0 - batch.dones) * max_next_q
                 if hooks.target_clip is not None and hooks.target_clip > 0:
                     td_target = np.clip(td_target, -hooks.target_clip, hooks.target_clip)
-                if per and isinstance(buffer, PrioritizedReplayBuffer):
+                sample_weights = batch.weights if (per and isinstance(buffer, PrioritizedReplayBuffer)) else None
+                effect_labels = batch.changed if online.action_effect else None
+                if isinstance(optimizer, MonoForwardTrainer):
+                    loss, td_abs, td_vec = optimizer.step(
+                        online,
+                        batch.states,
+                        batch.actions,
+                        td_target,
+                        loss=hooks.loss_name,
+                        huber_delta=hooks.huber_delta,
+                        sample_weights=sample_weights,
+                        return_td_errors=True,
+                        effect_labels=effect_labels,
+                        effect_coef=online.action_effect_coef,
+                    )
+                elif isinstance(optimizer, (EggrollOptimizer, DustOptimizer)):
+                    loss, td_abs, td_vec = optimizer.step(
+                        online,
+                        batch.states,
+                        batch.actions,
+                        td_target,
+                        loss=hooks.loss_name,
+                        huber_delta=hooks.huber_delta,
+                        sample_weights=sample_weights,
+                        return_td_errors=True,
+                    )
+                    if effect_labels is not None:
+                        online.update_action_effect_head(
+                            batch.states,
+                            batch.actions,
+                            effect_labels,
+                            sample_weights=sample_weights,
+                            coef=online.action_effect_coef,
+                        )
+                elif sample_weights is not None:
                     loss, td_abs, td_vec = online.train_batch(
                         batch.states,
                         batch.actions,
@@ -644,11 +868,11 @@ def train_dqn(env_name: str, params: dict[str, Any]) -> None:
                         optimizer,
                         loss=hooks.loss_name,
                         huber_delta=hooks.huber_delta,
-                        sample_weights=batch.weights,
+                        sample_weights=sample_weights,
                         return_td_errors=True,
+                        effect_labels=effect_labels,
+                        effect_coef=online.action_effect_coef,
                     )
-                    if batch.indices is not None:
-                        buffer.update_priorities(batch.indices, td_vec + per_priority_eps, eps=per_priority_eps)
                 else:
                     loss, td_abs = online.train_batch(
                         batch.states,
@@ -657,9 +881,15 @@ def train_dqn(env_name: str, params: dict[str, Any]) -> None:
                         optimizer,
                         loss=hooks.loss_name,
                         huber_delta=hooks.huber_delta,
+                        effect_labels=effect_labels,
+                        effect_coef=online.action_effect_coef,
                     )
+                if per and isinstance(buffer, PrioritizedReplayBuffer) and batch.indices is not None:
+                    buffer.update_priorities(batch.indices, td_vec + per_priority_eps, eps=per_priority_eps)
                 losses.append(float(loss))
                 td_abs_vals.append(float(td_abs))
+                if online.last_effect_acc is not None:
+                    effect_accs.append(float(online.last_effect_acc))
 
             if global_step % target_update == 0:
                 target.copy_from(online)
@@ -667,10 +897,11 @@ def train_dqn(env_name: str, params: dict[str, Any]) -> None:
         # Flush any remaining short n-step transitions on time-limit truncation.
         if not done and n_step > 1:
             for t in nstep_acc.flush_remaining(gamma=gamma, force_terminal=True):
-                buffer.add(t.state, t.action, t.reward, t.next_state, t.done, next_legal_actions=t.next_legal_actions)
+                buffer.add(t.state, t.action, t.reward, t.next_state, t.done, next_legal_actions=t.next_legal_actions, changed=t.changed)
 
         mean_loss = float(np.mean(losses)) if losses else 0.0
         mean_td_abs = float(np.mean(td_abs_vals)) if td_abs_vals else 0.0
+        mean_effect = float(np.mean(effect_accs)) if effect_accs else None
         eps_now = epsilon_by_step(global_step, eps_start, eps_end, eps_decay_steps)
 
         # Compact generic log with optional common fields.
@@ -683,6 +914,7 @@ def train_dqn(env_name: str, params: dict[str, Any]) -> None:
             f"ep={episode:4d} steps={steps:4d} score={score:4d} "
             + (" ".join(extra_fields) + " " if extra_fields else "")
             + f"reward={episode_reward:8.2f} eps={eps_now:.3f} loss={mean_loss:.5f} td_abs={mean_td_abs:.5f}"
+            + (f" effect={mean_effect:.3f}" if mean_effect is not None else "")
         )
 
         if episode % eval_every == 0:
